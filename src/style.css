@@ -1,0 +1,141 @@
+:root {
+  font-family: "DM Sans", system-ui, sans-serif;
+  color: #173c40;
+  background: #eef3f0;
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+header {
+  background: #153c40;
+  color: #f7faf4;
+  padding: 48px max(5vw, 20px);
+}
+header span {
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: #b5d9c7;
+}
+h1 {
+  font-size: 64px;
+  margin: 18px 0 8px;
+  letter-spacing: -3px;
+}
+header p {
+  font-size: 20px;
+}
+main {
+  max-width: 1400px;
+  margin: auto;
+  padding: 24px;
+}
+section,
+aside {
+  background: #fff;
+  border: 1px solid #d1ded5;
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+aside {
+  background: #e1eddc;
+  line-height: 1.6;
+}
+.views {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+.views section {
+  min-width: 0;
+}
+h2 {
+  font-size: 21px;
+}
+label {
+  display: block;
+  margin: 16px 0;
+  font-weight: 500;
+}
+input:not([type="checkbox"]),
+select {
+  display: block;
+  max-width: 100%;
+  padding: 12px;
+  border: 1px solid #a9c0b5;
+  border-radius: 8px;
+  margin-top: 8px;
+}
+button {
+  background: #1e5d59;
+  color: white;
+  border: 0;
+  border-radius: 8px;
+  padding: 13px 18px;
+  margin: 5px 8px 5px 0;
+  font: inherit;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button:hover:enabled {
+  background: #123e3b;
+}
+canvas {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+}
+canvas[width="0"] {
+  display: none;
+}
+.check {
+  font-size: 14px;
+  line-height: 1.6;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+td,
+th {
+  text-align: left;
+  border-bottom: 1px solid #dbe5dd;
+  padding: 12px 4px;
+}
+small {
+  display: block;
+  color: #76522e;
+  margin-top: 5px;
+}
+li,
+p {
+  line-height: 1.6;
+}
+li {
+  margin-bottom: 6px;
+}
+input:focus,
+button:focus,
+select:focus {
+  outline: 3px solid #cf9e4e;
+  outline-offset: 3px;
+}
+@media (max-width: 800px) {
+  .views {
+    grid-template-columns: 1fr;
+  }
+  h1 {
+    font-size: 48px;
+  }
+  main {
+    padding: 14px;
+  }
+}
