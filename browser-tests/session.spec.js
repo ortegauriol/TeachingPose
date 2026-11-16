@@ -12,6 +12,20 @@ test("session upload, confirmation, validation and clearing", async ({
   await expect(
     page.getByRole("button", { name: "Download JSON" }),
   ).toBeDisabled();
+  await expect(page.locator("footer")).toContainText(
+    "Dr. Pablo Ortega-Auriol, Research Fellow",
+  );
+  await expect(page.locator("header img")).toBeVisible();
+  await expect(page.locator(".guidance")).toContainText(
+    "Horizontal and vertical follow the photo edges.",
+  );
+  expect(
+    await page
+      .locator(".views")
+      .evaluate((el) =>
+        Boolean(el.nextElementSibling?.classList.contains("guidance")),
+      ),
+  ).toBe(true);
   await page.screenshot({
     path: testInfo.outputPath("preview.png"),
     fullPage: true,
@@ -19,13 +33,11 @@ test("session upload, confirmation, validation and clearing", async ({
   const front = page.locator(".views section").first();
   await front.getByRole("button", { name: "Analyze photograph" }).click();
   await expect(front.locator("[data-message]")).toContainText("Load the model");
-  await front
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "bad.png",
-      mimeType: "image/png",
-      buffer: Buffer.from("invalid"),
-    });
+  await front.locator("input[type=file]").setInputFiles({
+    name: "bad.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("invalid"),
+  });
   await expect(front.locator("[data-message]")).not.toContainText(
     "No photograph",
   );
@@ -35,23 +47,24 @@ test("session upload, confirmation, validation and clearing", async ({
     c.height = 900;
     return c.toDataURL().split(",")[1];
   });
-  await front
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "blank.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(png, "base64"),
-    });
+  await front.locator("input[type=file]").setInputFiles({
+    name: "blank.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(png, "base64"),
+  });
   await expect(front.locator("[data-message]")).toContainText("Ready.");
   await front.getByRole("checkbox").check();
   await page.getByRole("button", { name: "Clear session" }).click();
   await expect(front.getByRole("checkbox")).not.toBeChecked();
   await expect(front.locator("canvas")).toHaveAttribute("width", "0");
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({path:testInfo.outputPath('mobile.png'),fullPage:true});
   expect(errors).toEqual([]);
 });
 test("deterministic landmarks produce consistent JSON, CSV and PDF exports", async ({
   page,
-}) => {
+}, testInfo) => {
   const landmarks = Array.from({ length: 33 }, () => ({
     x: 0.5,
     y: 0.2,
@@ -87,24 +100,41 @@ test("deterministic landmarks produce consistent JSON, CSV and PDF exports", asy
   await page.goto("/");
   await page.getByRole("button", { name: "Load local analysis model" }).click();
   await expect(page.locator("#status")).toContainText("Model ready");
-  const png = await page.evaluate(() => {
+  const png = await page.evaluate((landmarks) => {
     const c = document.createElement("canvas");
     c.width = 600;
     c.height = 900;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#f8fafc'; ctx.fillRect(0,0,600,900);
+    ctx.strokeStyle = '#aebfca'; ctx.lineWidth = 14; ctx.lineCap = 'round';
+    for(const [a,b] of [[11,12],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]]){
+      ctx.beginPath();ctx.moveTo(landmarks[a].x*600,landmarks[a].y*900);ctx.lineTo(landmarks[b].x*600,landmarks[b].y*900);ctx.stroke();
+    }
+    ctx.beginPath();ctx.arc(300,145,43,0,Math.PI*2);ctx.stroke();
     return c.toDataURL().split(",")[1];
-  });
+  }, landmarks);
   const front = page.locator(".views section").first();
-  await front
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "fixture.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(png, "base64"),
-    });
+  await front.locator("input[type=file]").setInputFiles({
+    name: "fixture.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(png, "base64"),
+  });
   await expect(front.locator("[data-message]")).toContainText("Ready.");
   await front.getByRole("checkbox").check();
   await front.getByRole("button", { name: "Analyze photograph" }).click();
   await expect(front.locator("table")).toContainText("0.00 deg");
+  await page.locator("#code").fill("SYNTHETIC DEMO - NOT A PARTICIPANT");
+  const side = page.locator(".views section").last();
+  await side
+    .locator("input[type=file]")
+    .setInputFiles({
+      name: "fixture-side.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(png, "base64"),
+    });
+  await expect(side.locator("[data-message]")).toContainText("Ready.");
+  await side.getByRole("button", { name: "Analyze photograph" }).click();
+  await expect(side.locator("table")).toContainText("Unavailable");
   for (const [name, extension] of [
     ["Download JSON", "json"],
     ["Download CSV", "csv"],
@@ -127,8 +157,10 @@ test("deterministic landmarks produce consistent JSON, CSV and PDF exports", asy
       expect(data.toString()).toContain(
         '"Shoulder-line inclination","0","deg"',
       );
-    if (extension === "pdf")
+    if (extension === "pdf") {
       expect(data.subarray(0, 5).toString()).toBe("%PDF-");
+      await download.saveAs(testInfo.outputPath("student-report.pdf"));
+    }
   }
 });
 test("real model loads and rejects an empty photograph", async ({
@@ -151,13 +183,11 @@ test("real model loads and rejects an empty photograph", async ({
     return c.toDataURL().split(",")[1];
   });
   const front = page.locator(".views section").first();
-  await front
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "blank.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(png, "base64"),
-    });
+  await front.locator("input[type=file]").setInputFiles({
+    name: "blank.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(png, "base64"),
+  });
   await expect(front.locator("[data-message]")).toContainText("Ready.");
   await front.getByRole("button", { name: "Analyze photograph" }).click();
   await expect(front.locator("[data-message]")).toContainText(

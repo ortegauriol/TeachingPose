@@ -1,12 +1,20 @@
 import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
-import { jsPDF } from "jspdf";
+import { createStudentReport } from "./report.js";
+import { CREDIT, guidanceHTML } from "./guidance.js";
+import logoReversed from "./assets/university-logo-reversed.png";
 import { analyze, point, THRESHOLD } from "./metrics.js";
 import "./style.css";
 const VERSION = "0.10.22-rc.20250304";
 const MODEL =
   "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
 const app = document.querySelector("#app");
-app.innerHTML = `<header><span>TEACHINGPOSE / RESEARCH STUDIO</span><h1>PostureLab</h1><p>Explore alignment in two dimensions.</p></header><main><aside><b>Teaching and research prototype</b><p>Projected image measurements only. No clinical validation, diagnosis, normal ranges or anatomical pelvic tilt.</p><p>Photos stay in browser memory. No image upload, analytics or browser storage. Model/WASM downloads need internet; explicit exports save files to your device.</p></aside><section class="toolbar"><label>Study code (optional, no names)<input id="code" maxlength="60" placeholder="e.g. CLASS-001"></label><button id="load">Load local analysis model</button><button id="clear">Clear session</button><p id="status" role="status" aria-live="polite">Load the model, select photographs, then confirm each view.</p></section><div class="views"></div><section><h2>Export this session</h2><p>CSV contains measurements; JSON contains measurements and normalized landmarks (no pixels or filenames). PDF contains annotated photos. Exported files may be sensitive.</p><button id="csv" disabled>Download CSV</button><button id="json" disabled>Download JSON</button><button id="pdf" disabled>Download PDF report</button></section><section><h2>How to read these results</h2><p>Use one consenting adult, full body, level camera at torso height, neutral stance, good lighting and a plain background. Confirm frontal or true side view yourself. Choose the visible anatomical side in a sagittal photo. Avoid mirrored images.</p><p>Angles use image pixels corrected for aspect ratio. Horizontal line angles are wrapped to ±90°; positive means downward to image right. Trunk inclination is positive toward image right. Knee flexion is 180° minus the hip–knee–ankle angle, unsigned. Ear offset is signed toward image right, divided by shoulder–hip distance. These are projections affected by rotation, perspective and camera roll.</p><p>Landmarks require visibility ≥ ${THRESHOLD} and must be inside the image. Unavailable values remain blank in CSV and null in JSON. View confirmation is a human check, not automatic validation.</p></section></main>`;
+app.innerHTML = `<header><div class="brand-row"><span>TEACHINGPOSE / STUDENT LAB</span><img class="university-logo" src="${logoReversed}" alt="Waipapa Taumata Rau, University of Auckland"></div><h1>PostureLab</h1><p>Explore alignment in two dimensions.</p></header>
+<main><aside><b>Automatic posture observations for teaching</b><p>Upload front and side photographs to explore projected body alignment. Landmarks are detected automatically. Photos stay in browser memory until you clear or reload the session.</p><p class="scope-note">Teaching and research prototype. Not clinically validated; no diagnosis or established normal range.</p></aside>
+<section class="toolbar"><label>Study code (optional, no names)<input id="code" maxlength="60" placeholder="e.g. CLASS-001"></label><button id="load">Load local analysis model</button><button id="clear">Clear session</button><p id="status" role="status" aria-live="polite">Load the model, select photographs, then confirm each view.</p></section>
+<div class="views"></div>
+${guidanceHTML(THRESHOLD)}
+<section><h2>Your student report</h2><p>Download a clean report with your annotated photographs, measurements and reflection prompts. CSV and JSON are available for further study. Downloads may contain identifiable information.</p><button id="pdf" disabled>Download PDF report</button><button id="csv" disabled>Download CSV</button><button id="json" disabled>Download JSON</button><p id="report-status" role="status" aria-live="polite"></p></section>
+</main><footer><p>${CREDIT}</p><p class="footer-note">Automatic pose estimation powered by MediaPipe. Teaching and research use.</p></footer>`;
 const states = { frontal: {}, sagittal: {} };
 let model,
   loading = false,
@@ -280,62 +288,30 @@ document.querySelector("#csv").onclick = () => {
     "csv",
   );
 };
-document.querySelector("#pdf").onclick = () => {
-  const data = snapshot(),
-    pdf = new jsPDF();
-  Object.entries(data.views).forEach(([v, s], i) => {
-    if (i) pdf.addPage();
-    pdf.setFontSize(20);
-    pdf.text("PostureLab / " + v, 15, 20);
-    pdf.setFontSize(10);
-    pdf.text(
-      "Teaching and research only. Not clinically validated. 2D projections.",
-      15,
-      29,
+document.querySelector("#pdf").onclick = async () => {
+  const button = document.querySelector("#pdf"),
+    status = document.querySelector("#report-status");
+  button.disabled = true;
+  status.textContent = "Preparing your student report…";
+  try {
+    const data = snapshot();
+    const canvases = Object.fromEntries(
+      Object.keys(data.views).map((v) => {
+        const source = states[v].canvas,
+          copy = document.createElement("canvas");
+        copy.width = source.width;
+        copy.height = source.height;
+        copy.getContext("2d").drawImage(source, 0, 0);
+        return [v, copy];
+      }),
     );
-    pdf.text("Generated: " + data.createdAt, 15, 36);
-    pdf.text(
-      "Study code: " + data.studyCode.replace(/[^\x20-\x7E]/g, "?"),
-      15,
-      43,
-    );
-    const canvas = states[v].canvas,
-      scale = Math.min(180 / canvas.width, 125 / canvas.height);
-    pdf.addImage(
-      canvas.toDataURL("image/jpeg", 0.85),
-      "JPEG",
-      15,
-      50,
-      canvas.width * scale,
-      canvas.height * scale,
-    );
-    let y = 185;
-    for (const r of s.rows) {
-      pdf.text(
-        `${r.name.replace("–", "-")}: ${r.value === null ? "Unavailable (" + r.reason + ")" : r.value.toFixed(2) + " " + r.unit}`,
-        15,
-        y,
-      );
-      y += 9;
-    }
-    for (const text of [
-      "Visible side: " +
-        (s.side || "both") +
-        ". View confirmed: " +
-        s.viewConfirmed,
-      ...s.warnings,
-      "Signs: image-right positive; horizontal lines downward-right positive. Knee is unsigned.",
-      "No diagnostic interpretation. Camera roll and out-of-plane rotation affect results.",
-    ]) {
-      const lines = pdf.splitTextToSize(text, 180);
-      if (y + lines.length * 5 > 280) {
-        pdf.addPage();
-        y = 20;
-      }
-      pdf.text(lines, 15, y);
-      y += lines.length * 5 + 3;
-    }
-  });
-  pdf.save("posturelab-report.pdf");
+    const pdf = await createStudentReport(data, canvases);
+    pdf.save("posturelab-report.pdf");
+    status.textContent =
+      "Report downloaded. Store it securely and clear the session when finished.";
+  } catch (error) {
+    status.textContent = "Report could not be created. " + error.message;
+  } finally {
+    button.disabled = !Object.values(states).some((s) => s.result);
+  }
 };
-

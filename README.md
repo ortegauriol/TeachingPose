@@ -2,6 +2,12 @@
 
 First prototype for undergraduate teaching and research. **Not clinically validated; no diagnosis or normative classifications.** MediaPipe Pose inference, annotations and exports run on the user's device.
 
+## Student interface and report
+
+Photo instructions, automatic-measurement definitions and expandable technical/privacy notes sit immediately below the upload areas. The student PDF uses one page per analyzed view with the annotated photo, readable measurements, availability checks and a reflection prompt. Technical model details remain in the website guidance and JSON export. PDF values are displayed to one decimal place; CSV/JSON retain the calculated values.
+
+University of Auckland primary PNG artwork was supplied by the user and is included unchanged in `src/assets/`. The website and PDF credit reads: **Adapted and created by Dr. Pablo Ortega-Auriol, Research Fellow**. No additional qualifications, department or institutional endorsement are asserted.
+
 ## Repository provenance
 
 On 13 November 2026 the connected repository was empty, with intended default branch `main` and write access. A README-only baseline was initialized before developing `feat/posturelab-prototype`. The screenshot showed a separate StackBlitz import of `google-ai-edge/mediapipe-samples-web`; those files had not been pushed here. This independent app does not replace that workspace.
