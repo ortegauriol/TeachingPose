@@ -1,61 +1,21 @@
+import { CATALOG } from "./metrics.js";
 export const CREDIT =
   "Adapted and created by Dr. Pablo Ortega-Auriol, Research Fellow";
-
-export const DEFINITIONS = [
-  [
-    "Frontal",
-    "Shoulder-line inclination",
-    "Angle of the estimated shoulder line to image horizontal. Positive slopes down towards image right.",
-  ],
-  [
-    "Frontal",
-    "Hip-line inclination",
-    "Angle of the estimated hip line to image horizontal. This is not ASIS/PSIS pelvic tilt.",
-  ],
-  [
-    "Frontal",
-    "Ear-line inclination",
-    "Angle of the estimated ear line to image horizontal. This describes a projected line, not cervical spine alignment.",
-  ],
-  [
-    "Frontal",
-    "Lateral trunk inclination",
-    "Line from the hip midpoint to the shoulder midpoint relative to image vertical. Positive leans towards image right.",
-  ],
-  [
-    "Sagittal",
-    "Trunk inclination",
-    "Line from the selected hip to shoulder relative to image vertical. Positive leans towards image right; this does not necessarily mean forwards.",
-  ],
-  [
-    "Sagittal",
-    "Projected knee flexion",
-    "180° minus the hip–knee–ankle angle on the selected side. Zero is a straight projected line. The unsigned angle cannot distinguish flexion from hyperextension.",
-  ],
-  [
-    "Sagittal",
-    "Ear–shoulder horizontal offset",
-    "Horizontal ear-to-shoulder displacement divided by shoulder-to-hip length × 100. Positive is image right. This is not a craniovertebral angle.",
-  ],
-];
-
 export function guidanceHTML(threshold) {
-  return `<section class="guidance" aria-labelledby="guidance-title">
-    <p class="eyebrow">PHOTO GUIDE &amp; MEASUREMENT NOTES</p>
-    <h2 id="guidance-title">Understand your photographs</h2>
-    <div class="guide-grid"><div><h3>Before you upload</h3><ol>
-      <li>Obtain consent. Use one adult participant, suitable fitted clothing and no footwear; include the whole body.</li>
-      <li>Keep the camera level and facing the participant squarely, at approximately torso height. Use good lighting and a plain background.</li>
-      <li>Take a front-facing photo and a true side-view photo. Avoid mirrored images. Select the visible anatomical side for the side view.</li>
-      <li>Use JPEG, PNG or WebP, up to 20 MB and 40 megapixels. Images are reduced to a maximum 1800-pixel edge for analysis.</li>
-    </ol></div><div><h3>After analysis</h3><p>The estimator places every landmark automatically. Check the overlay visually; there is no manual placement or correction. If it misses the body, retake the photo.</p><p>A result marked <strong>Unavailable</strong> has insufficient landmarks or an unconfirmed view. It is not a zero result.</p><p>These are descriptive 2D projections for teaching. They do not diagnose a condition, explain pain, or establish a normal range.</p></div></div>
-    <details open><summary>What each measurement means</summary><div class="table-scroll"><table><thead><tr><th>View</th><th>Measurement</th><th>Definition</th></tr></thead><tbody>${DEFINITIONS.map(([v, n, d]) => `<tr><td>${v}</td><td>${n}</td><td>${d}</td></tr>`).join("")}</tbody></table></div></details>
-    <details><summary>Technical method, horizontal reference and limits</summary>
-      <p>Horizontal and vertical follow the photo edges. Gravity is not measured and camera roll is not corrected automatically. A level camera is essential. Pixel x/y coordinates are scaled by image width/height before geometry; this corrects aspect ratio, not perspective.</p>
-      <p>Line inclinations are wrapped to ±90°. Landmark visibility must be at least ${threshold}; visibility is a model score, not a probability that a measurement is accurate. Coordinates must lie inside the 1% image margin and measured segments must exceed one pixel.</p>
-      <p>The model estimates shoulders, hips, knees, ankles and ears. It does not identify C7, ASIS/PSIS, scapular borders, patellar tracking or vertebral curvature. It cannot provide anatomical pelvic tilt, thoracic kyphosis, lumbar lordosis or clinical leg length from these photos.</p>
-      <p>No reference range has been established for this tool. Left/right are anatomical labels; numerical signs refer to image direction. Body rotation, clothing, occlusion and camera position affect the results.</p>
-    </details>
-    <details><summary>Privacy and downloads</summary><p>Photos and session data stay in browser memory until cleared or the page is reloaded. There is no image upload or automatic saving. The model and WebAssembly download from external hosts. The PDF explicitly saves annotated photos to your device; CSV and JSON save derived data. Treat downloads as potentially identifiable and store or delete them appropriately.</p></details>
-  </section>`;
+  return `<section class="guidance" aria-labelledby="guidance-title"><p class="eyebrow">PHOTO GUIDE &amp; MEASUREMENT NOTES</p><h2 id="guidance-title">Understand your photographs</h2>
+ <div class="guide-grid"><div><h3>Capture the two conditions</h3><ol>
+ <li>Obtain consent. Photograph one adult participant in suitable fitted clothing, without footwear, including the full body.</li>
+ <li>Keep the camera level, at torso height, with the same position, distance and lens setting. Use good lighting and a plain background. Avoid mirrored images.</li>
+ <li>Photograph comfortable standing first: ask the participant to stand as they usually would, without coaching them to stand straight.</li>
+ <li>Then photograph the course's instructed anatomical standing position. Use the same instructions each time. Take front and true side views for each condition.</li>
+ <li>For side-view comparison, use the same visible anatomical side and facing direction. Select both below the corresponding photos. Confirm each view and analyze.</li>
+ <li>Use JPEG, PNG or WebP, up to 20 MB and 40 megapixels. Images are reduced to a maximum 1800-pixel edge.</li></ol></div>
+ <div><h3>Use measurements as evidence</h3><p>All landmarks are detected automatically. Inspect the overlay visually; there is no manual placement or correction. Retake unsuitable photos.</p><p>Gold dots are estimated landmarks, green lines connect them, and coral dashed lines show the selected measurement guides. Ankle vertical means image vertical through an ankle reference; it is not a centre-of-gravity line.</p><p>Compare the two conditions and explain what you notice. A change is a response to instruction, not automatically improvement. Missing values are unavailable, never zero.</p><p>No normal ranges, clinical significance thresholds or diagnostic conclusions have been established for these measurements.</p></div></div>
+ <details><summary>What each measurement means</summary><div class="table-scroll"><table><thead><tr><th>View</th><th>Measurement</th><th>Definition</th></tr></thead><tbody>${CATALOG.map((m) => `<tr><td>${m.view === "frontal" ? "Front" : "Side"}</td><td>${m.name} (${m.unit})</td><td>${m.definition}</td></tr>`).join("")}</tbody></table></div></details>
+ <details><summary>Technical method, horizontal reference and limits</summary><p>Horizontal and vertical follow the photo edges. Gravity is not measured and camera roll is not corrected automatically. A level camera is essential. Pixel x/y coordinates are scaled by image width/height; this corrects aspect ratio, not perspective.</p>
+ <p>Distances are percentages of the torso reference length: shoulder-midpoint to hip-midpoint in front views, and selected shoulder to hip in side views. Each photo uses its own reference. These ratios are not millimetres, and apparent segment length can change with rotation.</p>
+ <p>Line angles are wrapped to ±90°. Frontal trunk/hip offsets are positive towards image right. Height differences are right y minus left y, so positive means the estimated left point is higher. Knee projection angles/offsets are positive medially, towards the other hip. Side-view directional angles/offsets are positive anterior using the selected facing direction. Side knee bend is unsigned and cannot identify hyperextension.</p>
+ <p>Landmark visibility must be at least ${threshold}, coordinates must be inside the 1% image margin, and reference segments must exceed one pixel. These are prototype quality rules, not validated error bounds. Differences are instructed minus comfortable; they are withheld for missing values, unconfirmed views, or mismatched side/facing in side views. Front line-angle differences use the shortest change modulo 180°.</p>
+ <p>The estimator does not identify patellar centres, iliac crests, ASIS/PSIS, C7, scapular borders or individual vertebrae. The available measurements cannot establish patellar tracking, anatomical pelvic tilt, spinal curvature, arch shape, Achilles alignment, loading or leg-length discrepancy. More numbers do not supply missing anatomy.</p></details>
+ <details><summary>Privacy and downloads</summary><p>Photos and session data stay in browser memory until cleared or reloaded. There is no image upload or automatic saving. Model/WebAssembly downloads need internet. PDF exports save annotated photos; CSV and JSON save measurements, comparisons and metadata. Store or delete potentially identifiable downloads appropriately.</p></details></section>`;
 }

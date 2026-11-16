@@ -1,30 +1,57 @@
 # PostureLab / TeachingPose
 
-First prototype for undergraduate teaching and research. **Not clinically validated; no diagnosis or normative classifications.** MediaPipe Pose inference, annotations and exports run on the user's device.
+Automatic 2D posture observations for undergraduate teaching and research. **Not clinically validated. No diagnostic classifications, normal ranges or meaningful-change thresholds.** All landmarks are placed by MediaPipe, with no manual editing.
 
-## Student interface and report
+## Student workflow
 
-Photo instructions, automatic-measurement definitions and expandable technical/privacy notes sit immediately below the upload areas. The student PDF uses one page per analyzed view with the annotated photo, readable measurements, availability checks and a reflection prompt. Technical model details remain in the website guidance and JSON export. PDF values are displayed to one decimal place; CSV/JSON retain the calculated values.
+1. Obtain consent and photograph comfortable standing without coaching.
+2. Photograph the course's instructed anatomical standing position.
+3. Upload front and side views of each condition (four independent slots). Keep the camera level, square to the participant and at the same position/distance/lens setting. Use full-body, unmirrored images.
+4. Load the analysis model, confirm each view, and select the visible anatomical side and facing direction for each side photo.
+5. Analyze each photo. Choose body-alignment guides, lower-limb guides or landmarks only. Gold points/green connections show the automatic pose; coral guides and letter keys explain measurement references.
+6. Compare comfortable/instructed results, then develop your own interpretation. Partial sessions are supported. Failed detection requires a retake; no manual landmark correction is provided.
+7. Download a student PDF, CSV or JSON, then clear the session.
 
-University of Auckland primary PNG artwork was supplied by the user and is included unchanged in `src/assets/`. The website and PDF credit reads: **Adapted and created by Dr. Pablo Ortega-Auriol, Research Fellow**. No additional qualifications, department or institutional endorsement are asserted.
+Photo guidance, definitions, normalization and sign conventions are directly below the upload areas. Comparisons are grouped into head/shoulders, trunk/hips and lower limbs. A difference describes a response to instruction, not automatically improvement.
 
-## Repository provenance
+The photo workflow uses continuous vertical columns: comfortable standing (pale blue) and instructed standing (pale green), with front then side view in each. On mobile the complete comfortable workflow precedes the instructed workflow.
 
-On 13 November 2026 the connected repository was empty, with intended default branch `main` and write access. A README-only baseline was initialized before developing `feat/posturelab-prototype`. The screenshot showed a separate StackBlitz import of `google-ai-edge/mediapipe-samples-web`; those files had not been pushed here. This independent app does not replace that workspace.
+## Measurements
+
+**Front view (16):** shoulder, hip and ear line inclinations; lateral trunk inclination; shoulder, ear, hip, knee and ankle height differences; trunk lateral offset; hip offset relative to ankle midpoint; left/right knee projection angles; left/right knee offsets from hip–ankle lines; projected ankle separation.
+
+**Side view (8):** trunk inclination; unsigned projected knee bend; ear–shoulder offset; ear, shoulder and hip offsets from ankle vertical; thigh and shank inclination.
+
+Distances use percentages of torso length. Front reference: shoulder-midpoint to hip-midpoint distance. Side reference: selected shoulder-to-hip distance. Each photo uses its own reference; ratios are affected by projection and are not millimetres.
+
+Front height differences are right y minus left y (positive = estimated left point higher). Front trunk/hip offsets are positive image-right. Knee projection angles/offsets are positive medially towards the other hip, using the projected hip–ankle line. Side directional measures are positive anterior using the selected facing direction; they are withheld until direction is selected. Side knee bend is unsigned and does not distinguish flexion from hyperextension.
+
+All geometry uses image x/y scaled by image width/height. Visibility must be at least 0.65, coordinates must be inside the 1% image margin, and measured references must exceed one pixel. Visibility is not measurement accuracy. Missing/low-visibility/clipped landmarks, unconfirmed view or degenerate geometry withhold the affected values.
+
+Differences are instructed minus comfortable. Ratio differences are percentage points. Front horizontal-line angle changes use the shortest difference modulo 180 degrees. Differences are withheld when either value is unavailable, either view is unconfirmed, or side-view photos have mismatched/unknown facing or mismatched anatomical side.
+
+These estimates do not locate patellar centres, ASIS/PSIS, iliac crests, scapular borders, C7 or individual vertebrae. They cannot determine patellar tracking, 3D knee valgus, spinal curves, anatomical pelvic tilt, foot arches/pronation, Achilles alignment, loading or leg-length discrepancy. Camera roll is not measured or corrected; human view review remains required.
+
+## Exports and privacy
+
+The student PDF pairs annotated photos and provides grouped comparisons plus reflection prompts. Missing photos/results are labelled. Display values have one decimal place; exports retain calculated values.
+
+JSON **schemaVersion 2** replaces the previous top-level views with:
+- conditions.comfortable.frontal / sagittal
+- conditions.instructed.frontal / sagittal
+- comparisons.frontal / sagittal, keyed by stable metric IDs
+
+Each available photo includes metadata, automatic landmarks, results, definitions, guide coordinates and quality warnings; no pixels or original filenames. CSV includes measurement/difference record types, condition/view/side/facing metadata, metric IDs, units and unavailable reasons. Missing values are null in JSON and blank in CSV; zero remains a real value.
+
+Photos and session data stay in page memory until clear/reload. No backend, image upload, browser session storage, analytics or automatic image collection. Model/WASM downloads disclose normal connection metadata to their hosts, not photo pixels. Explicit PDF export saves images; exports may identify people. Do not commit participant images to this public repository. Automated test examples use synthetic diagrams/landmarks only.
 
 ## Open in StackBlitz
 
-1. Open https://stackblitz.com/github/ortegauriol/TeachingPose/tree/feat/posturelab-prototype . Use this branch until the PR is merged.
-2. Allow WebContainers to start. Use desktop Chromium and open the preview in a new tab if the embedded preview has trouble. Do not paste these files over the Google demo.
-3. Run `npm ci`, then `npm run dev` in the terminal. Open the port 5173 preview.
-4. Click **Load local analysis model**. Internet access to `cdn.jsdelivr.net` and `storage.googleapis.com` is required for WASM/model downloads. Package and WASM versions match; the full float16 version 1 model is used.
-5. Upload frontal and sagittal JPEG/PNG/WebP photographs (maximum 20 MB and 40 MP). Browser decoding handles orientation; images are reduced to a maximum 1800-pixel edge. Verify orientation visually.
-6. Confirm each view and choose the visible anatomical side for sagittal analysis. Click **Analyze photograph** in each panel and inspect the numbered overlay.
-7. Download CSV measurements, JSON landmarks/measurements, or a PDF with annotated photos. Use **Clear session** afterward.
+Open https://stackblitz.com/github/ortegauriol/TeachingPose/tree/feat/posturelab-prototype . Use desktop Chrome/Edge. Run npm ci, then npm run dev; open port 5173. If embedded preview has trouble, open the preview in a new tab. Model loading needs access to cdn.jsdelivr.net and storage.googleapis.com.
 
-After merging, use https://stackblitz.com/github/ortegauriol/TeachingPose . If StackBlitz shows the Google demo, open the feature-branch link above in a fresh project.
+After merging, https://stackblitz.com/github/ortegauriol/TeachingPose will use the default branch. Do not paste these files over the separate Google demonstration workspace.
 
-## Local development and verification
+## Local development and checks
 
 Use Node 22 LTS.
 
@@ -35,33 +62,14 @@ npm run build
 npm run dev
 ```
 
-Browser smoke tests: `npx playwright test`. Configuration uses installed Microsoft Edge on Windows; elsewhere remove `channel` and run `npx playwright install chromium`. Tests cover input validation, session clearing, real model loading/no-person rejection, and CSV/JSON/PDF downloads with synthetic landmarks. They do not establish clinical accuracy.
+Run npx playwright test for Edge integration checks on Windows. Elsewhere remove channel from playwright.config.js and install Playwright Chromium. Tests check hand-derived geometry, normalization, anatomical/image signs, null gating, angular wrapping, partial/mismatched comparisons, replacement/clearing, responsive layout, exports, and real-model load/no-person rejection. Synthetic landmark tests validate software behavior, not anatomical accuracy.
 
-Manual acceptance: test a no-person photo (no pose), multi-person photo (reject when multiple detected), cropping/occlusion (unavailable metrics), both sagittal sides, unchecked view (unavailable), replacement uploads (old data removed), and all exports. Compare PDF/CSV/JSON values with the screen. Detector counts are model estimates; human review must ensure one person. Positive-person inference and PDF layout require representative consented photographs before classroom use.
+Representative consented-photo repeatability studies remain necessary, including different body types, clothing, camera rotation, selected sides and occlusion. Inference is synchronous per still image and may briefly block the interface.
 
-## Acquisition and measurement definitions
+## Branding and provenance
 
-Use one consenting adult, full body, level camera at torso height, neutral stance, good light and plain background. Avoid mirrored photos. View confirmation is a human check, not automatic validation of the plane, camera roll or anatomical correctness.
+University of Auckland primary PNGs were supplied by the user and included unchanged. Credit: **Adapted and created by Dr. Pablo Ortega-Auriol, Research Fellow**. No additional qualifications, department or institutional endorsement are asserted.
 
-Only image-coordinate x/y are used, scaled by width/height before geometry. This corrects aspect ratio, not perspective. No mm/cm are estimated.
+The connected repository was initially empty with intended default main and write access. A README baseline was initialized before the feature branch. The supplied screenshot showed a separate google-ai-edge/mediapipe-samples-web StackBlitz import; those demo files were not overwritten.
 
-| View     | Metric                                  | Definition                                                                                |
-| -------- | --------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Frontal  | Shoulder, hip and ear line inclinations | Angle to image horizontal wrapped to ±90°, positive downward toward image right           |
-| Frontal  | Lateral trunk inclination               | Mid-hip to mid-shoulder relative to vertical, positive image-right                        |
-| Sagittal | Trunk inclination                       | Selected hip to shoulder relative to vertical, positive image-right                       |
-| Sagittal | Projected knee flexion                  | 180° minus hip–knee–ankle angle, unsigned; cannot distinguish hyperextension              |
-| Sagittal | Ear–shoulder horizontal offset          | Signed image-right offset / selected shoulder–hip length × 100; not craniovertebral angle |
-
-Visibility must be ≥0.65, finite x/y must be inside the 1% image margin, and segments must exceed one pixel. Unconfirmed view, missing/low-visibility/clipped landmarks or degenerate geometry produce null JSON and blank CSV values with reasons. Low resolution/full-body warnings prompt review. Thresholds are prototype heuristics, not validated confidence intervals. No automatic blur/view classification is claimed. Camera roll, rotation, occlusion, clothing and model bias affect results. Hip landmarks cannot estimate anatomical pelvic tilt; ear/shoulder landmarks are model estimates, not palpated markers.
-
-## Privacy
-
-No backend, image upload, localStorage, IndexedDB, service worker or analytics. Photos and derived data live in page memory until clear/reload. Replacement closes old bitmaps. External model/WASM requests disclose ordinary connection metadata, never photo pixels. Browser infrastructure may cache model/code assets. Explicit PDF export saves annotated images; JSON includes potentially sensitive landmarks and study code. Use no names or identifying study codes. Protect/delete exported files yourself. Never commit participant photos to this public repository.
-
-## Sources and limitations
-
-- MediaPipe IMAGE mode and browser API: https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker/web_js
-- Output definitions: https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker
-
-Still-image inference is synchronous and may briefly block the interface. A worker and formal reliability/validity study are future work.
+MediaPipe documentation: https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker

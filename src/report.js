@@ -1,13 +1,15 @@
 import { jsPDF } from "jspdf";
 import logoUrl from "./assets/university-logo.png";
+import { guideLegend } from "./overlay.js";
 import { CREDIT } from "./guidance.js";
-
+import { CONDITIONS, CONDITION_LABELS, VIEW_LABELS, VIEWS } from "./metrics.js";
 const navy = [0, 51, 90],
   ink = [32, 50, 65],
   muted = [84, 103, 116];
 const plain = (text) =>
   String(text)
     .replace(/[–—]/g, "-")
+    .replace(/·/g, ";")
     .replace(/[^\x20-\x7E°]/g, "?");
 function logoImage() {
   return new Promise((resolve, reject) => {
@@ -15,170 +17,236 @@ function logoImage() {
     image.onload = () => resolve(image);
     image.onerror = () =>
       reject(
-        new Error(
-          "The university logo could not load. Please retry the report.",
-        ),
+        Error("The university logo could not load. Please retry the report."),
       );
     image.src = logoUrl;
   });
 }
-
 export async function createStudentReport(data, canvases) {
-  const logo = await logoImage();
-  const pdf = new jsPDF();
+  const logo = await logoImage(),
+    pdf = new jsPDF();
+  let pages = 0;
   pdf.setProperties({
-    title: "PostureLab - Student posture report",
+    title: "PostureLab - Student comparison report",
     author: "Dr. Pablo Ortega-Auriol",
-    subject: "Automatic 2D posture observations for teaching",
+    subject: "Automatic 2D posture observations and response to instruction",
   });
-  const views = Object.entries(data.views);
-  views.forEach(([view, result], page) => {
-    if (page) pdf.addPage();
+  const text = (value, x, y, size = 10, color = ink, bold = false) => {
+    pdf.setFont("helvetica", bold ? "bold" : "normal");
+    pdf.setFontSize(size);
+    pdf.setTextColor(...color);
+    pdf.text(plain(value), x, y);
+  };
+  const wrap = (value, x, y, width, size = 9, color = ink) => {
+    pdf.setFontSize(size);
+    const lines = pdf.splitTextToSize(plain(value), width);
+    pdf.setFont("helvetica", "normal");
+    pdf.setTextColor(...color);
+    pdf.text(lines, x, y);
+    return lines.length * size * 0.4;
+  };
+  function page(title, subtitle) {
+    if (pages++) pdf.addPage();
     pdf.setFillColor(...navy);
     pdf.rect(0, 0, 210, 4, "F");
     pdf.addImage(logo, "PNG", 146, 10, 48, (48 * logo.height) / logo.width);
-    pdf.setTextColor(...navy);
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(10);
-    pdf.text("POSTURELAB", 16, 17);
-    pdf.setFontSize(21);
-    pdf.text("Student posture report", 16, 31);
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(12);
-    pdf.text(
-      view === "frontal"
-        ? "Front view / projected alignment"
-        : "Side view / projected alignment",
-      16,
-      42,
-    );
+    text("POSTURELAB", 16, 17, 10, navy, true);
+    text("Student posture report", 16, 31, 21, navy, true);
+    text(title, 16, 43, 12, navy);
+    text(subtitle, 16, 51, 9, muted);
     pdf.setDrawColor(215, 225, 231);
-    pdf.line(16, 49, 194, 49);
-    pdf.setFontSize(9);
-    pdf.setTextColor(...muted);
-    pdf.text("STUDY CODE", 16, 58);
-    pdf.text("DATE", 114, 58);
-    pdf.text("VIEW CHECK", 159, 58);
-    pdf.setTextColor(...ink);
-    pdf.setFontSize(10);
-    pdf.text(
-      pdf.splitTextToSize(plain(data.studyCode || "Not supplied"), 88),
-      16,
-      65,
+    pdf.line(16, 56, 194, 56);
+    wrap("Study code: " + (data.studyCode || "Not supplied"), 16, 64, 112, 9);
+    text(data.displayDate || data.createdAt.slice(0, 10), 148, 64, 9, muted);
+  }
+  const value = (x) => (x === null ? "n/a" : x.toFixed(1)),
+    delta = (x) => (x === null ? "n/a" : (x > 0 ? "+" : "") + x.toFixed(1));
+  for (const view of VIEWS) {
+    if (!CONDITIONS.some((c) => data.conditions[c]?.[view])) continue;
+    const comparison = data.comparisons[view],
+      available = comparison.filter((r) => r.difference !== null).length;
+    page(
+      VIEW_LABELS[view] + " / photographs",
+      "Comfortable standing compared with instructed anatomical standing",
     );
-    pdf.text(data.createdAt.slice(0, 10) + " UTC", 114, 65);
-    pdf.text(result.viewConfirmed ? "Confirmed" : "Not confirmed", 159, 65);
-
-    pdf.setFillColor(241, 245, 248);
-    pdf.roundedRect(16, 79, 79, 137, 3, 3, "F");
-    const canvas = canvases[view],
-      scale = Math.min(71 / canvas.width, 129 / canvas.height);
-    const width = canvas.width * scale,
-      height = canvas.height * scale;
-    pdf.addImage(
-      canvas.toDataURL("image/jpeg", 0.9),
-      "JPEG",
-      16 + (79 - width) / 2,
-      79 + (137 - height) / 2,
-      width,
-      height,
-    );
-    pdf.setFontSize(8);
-    pdf.setTextColor(...muted);
-    pdf.text("Automatic landmark overlay", 16, 222);
-
-    pdf.setTextColor(...navy);
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(12);
-    pdf.text("Your observations", 104, 84);
-    pdf.setFont("helvetica", "normal");
-    pdf.setTextColor(...muted);
-    pdf.setFontSize(9);
-    pdf.text(
-      view === "sagittal"
-        ? `Selected anatomical side: ${result.side}`
-        : "Lines are measured in this photograph.",
-      104,
-      92,
-    );
-    let y = 102;
-    for (const row of result.rows) {
-      pdf.setTextColor(...ink);
-      pdf.setFontSize(10);
-      pdf.setFont("helvetica", "bold");
-      const label = pdf.splitTextToSize(plain(row.name), 88);
-      pdf.text(label, 104, y);
-      y += label.length * 4.3 + 2;
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(11);
-      pdf.text(
-        row.value === null
-          ? "Unavailable"
-          : `${row.value.toFixed(1)} ${row.unit === "deg" ? "degrees" : "% torso length"}`,
-        104,
-        y,
+    CONDITIONS.forEach((c, index) => {
+      const x = 16 + index * 92,
+        result = data.conditions[c]?.[view],
+        canvas = canvases[c + "-" + view];
+      text(CONDITION_LABELS[c], x, 78, 11, navy, true);
+      pdf.setFillColor(241, 245, 248);
+      pdf.roundedRect(x, 83, 86, 103, 3, 3, "F");
+      if (canvas) {
+        const scale = Math.min(78 / canvas.width, 95 / canvas.height),
+          w = canvas.width * scale,
+          h = canvas.height * scale;
+        pdf.addImage(
+          canvas.toDataURL("image/jpeg", 0.9),
+          "JPEG",
+          x + (86 - w) / 2,
+          83 + (103 - h) / 2,
+          w,
+          h,
+        );
+      } else text("No analyzed photograph", x + 8, 135, 9, muted);
+      if (result)
+        wrap(
+          guideLegend(result, result.overlayMode || "alignment"),
+          x,
+          193,
+          86,
+          8,
+        );
+      wrap(
+        result
+          ? (result.viewConfirmed
+              ? "View confirmed. "
+              : "View not confirmed. ") +
+              (view === "sagittal"
+                ? "Side: " + result.side + "; facing: " + result.facing + ". "
+                : "") +
+              result.rows.filter((r) => r.value !== null).length +
+              "/" +
+              result.rows.length +
+              " measurements available."
+          : "This condition has not been analyzed.",
+        x,
+        209,
+        86,
+        8,
       );
-      y += 5;
-      if (row.reason) {
-        pdf.setFontSize(8);
-        pdf.setTextColor(...muted);
-        const reason = pdf.splitTextToSize(plain(row.reason), 88);
-        pdf.text(reason, 104, y);
-        y += reason.length * 3.5;
-      }
-      pdf.setDrawColor(224, 232, 236);
-      pdf.line(104, y + 1, 194, y + 1);
-      y += 7;
-    }
-    // A short, bounded checklist keeps quality information readable without spilling into the footer.
-    const available = result.rows.filter((row) => row.value !== null).length;
-    const quality = [
-      `${available} of ${result.rows.length} measurements available.`,
-      result.warnings.some((w) => w.startsWith("Low image"))
-        ? "Low resolution: consider retaking this photo."
-        : "",
-      result.warnings.some((w) => w.startsWith("Full-body"))
-        ? "Some body landmarks are obscured or outside the usable frame."
-        : "Check that the overlay follows the visible body.",
-    ]
-      .filter(Boolean)
-      .join(" ");
+    });
+    text(
+      available + " of " + comparison.length + " differences available",
+      16,
+      227,
+      11,
+      navy,
+      true,
+    );
+    wrap(
+      "Differences describe a response to instruction, not automatically improvement. Camera position, body rotation and landmark uncertainty can affect the comparison.",
+      16,
+      234,
+      178,
+      9,
+    );
     pdf.setFillColor(235, 242, 247);
-    pdf.roundedRect(16, 231, 178, 35, 3, 3, "F");
-    pdf.setTextColor(...navy);
-    pdf.setFontSize(10);
-    pdf.setFont("helvetica", "bold");
-    pdf.text("Reflect on what you see", 21, 239);
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(9);
-    pdf.setTextColor(...ink);
-    pdf.text(
-      pdf.splitTextToSize(
-        quality +
-          " What do you notice, and how might camera position or body rotation affect it?",
-        167,
-      ),
+    pdf.roundedRect(16, 249, 178, 19, 3, 3, "F");
+    wrap(
+      "Your interpretation: Which relationships changed together? What else would you need to answer the worksheet questions?",
       21,
-      245,
+      256,
+      167,
+      9,
     );
 
-    pdf.setTextColor(...muted);
-    pdf.setFontSize(8);
-    pdf.text(
-      "2D teaching observations only. Not clinically validated. No normal range or diagnosis.",
-      16,
-      274,
+    page(
+      VIEW_LABELS[view] + " / measurements",
+      "Grouped evidence for your own interpretation",
     );
-    pdf.text(
-      "Positive = image right; line slopes down-right. Knee angle is unsigned; it cannot identify hyperextension.",
+    let y = 77;
+    const reasons = [
+      ...new Set(comparison.map((r) => r.reason).filter(Boolean)),
+    ];
+    if (reasons.length) {
+      y +=
+        wrap(
+          "Unavailable differences: " + reasons.join("; ") + ".",
+          16,
+          y,
+          178,
+          8,
+          muted,
+        ) + 4;
+    }
+    y +=
+      wrap(
+        "Differences = instructed minus comfortable. Distances are % torso; their differences are percentage points (pp). n/a = unavailable. No significance threshold has been established.",
+        16,
+        y,
+        178,
+        8,
+        muted,
+      ) + 5;
+    function tableHeader() {
+      pdf.setFillColor(...navy);
+      pdf.rect(16, y, 178, 9, "F");
+      text("Measurement / unit", 19, y + 6, 9, [255, 255, 255], true);
+      text("Comfortable", 100, y + 6, 8, [255, 255, 255], true);
+      text("Instructed", 135, y + 6, 8, [255, 255, 255], true);
+      text("Difference", 167, y + 6, 8, [255, 255, 255], true);
+      y += 15;
+    }
+    tableHeader();
+    for (const group of [
+      "Head and shoulders",
+      "Trunk and hips",
+      "Lower limbs",
+    ]) {
+      const rows = comparison.filter((r) => r.group === group);
+      if (!rows.length) continue;
+      if (y + 22 > 263) {
+        page(
+          VIEW_LABELS[view] + " / measurements continued",
+          "Same definitions and signs as the preceding table",
+        );
+        y = 80;
+        tableHeader();
+      }
+      text(group, 18, y, 9.5, navy, true);
+      y += 6;
+      for (const r of rows) {
+        pdf.setFontSize(8.5);
+        const lines = pdf.splitTextToSize(
+            plain(r.name + " (" + r.unit + ")"),
+            77,
+          ),
+          height = Math.max(8, lines.length * 3.5 + 2);
+        if (y + height > 263) {
+          page(
+            VIEW_LABELS[view] + " / measurements continued",
+            group + " - continued",
+          );
+          y = 80;
+          tableHeader();
+        }
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(...ink);
+        pdf.text(lines, 18, y);
+        text(value(r.comfortable), 104, y, 10);
+        text(value(r.instructed), 139, y, 10);
+        text(delta(r.difference), 171, y, 10);
+        y += height;
+        pdf.setDrawColor(224, 232, 236);
+        pdf.line(16, y - 3, 194, y - 3);
+      }
+      y += 2;
+    }
+  }
+  const count = pdf.getNumberOfPages();
+  for (let n = 1; n <= count; n++) {
+    pdf.setPage(n);
+    text(
+      "Teaching observations only. Not clinically validated. No diagnosis or normal range.",
       16,
-      279,
+      275,
+      8,
+      muted,
+    );
+    text(
+      "Definitions and sign conventions are provided below the photo upload areas in PostureLab.",
+      16,
+      280,
+      8,
+      muted,
     );
     pdf.setDrawColor(215, 225, 231);
     pdf.line(16, 283, 194, 283);
-    pdf.setFontSize(7.5);
-    pdf.text(CREDIT, 16, 289);
-    pdf.text(`${page + 1} / ${views.length}`, 194, 289, { align: "right" });
-  });
+    text(CREDIT, 16, 289, 7.5, muted);
+    pdf.setFontSize(8);
+    pdf.text(n + " / " + count, 194, 289, { align: "right" });
+  }
   return pdf;
 }
