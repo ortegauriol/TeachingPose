@@ -34,17 +34,22 @@ These estimates do not locate patellar centres, ASIS/PSIS, iliac crests, scapula
 
 ## Exports and privacy
 
-The student PDF pairs annotated photos and provides grouped comparisons plus reflection prompts. Missing photos/results are labelled. Display values have one decimal place; exports retain calculated values.
+The student PDF pairs annotated photos and provides grouped comparisons plus reflection prompts. A rich-text interpretation editor supports bold, italic, underline and bullet/numbered lists. Notes appear on separate paginated PDF pages and in JSON; a notes-only PDF/JSON is also allowed. CSV remains a measurement table. Missing photos/results are labelled. Display values have one decimal place; exports retain calculated values. PDF embeds decoded logo pixels instead of requesting the logo synchronously, so report creation works when synchronous asset requests are blocked.
+
+Notes use lazily loaded DejaVu Sans subsets (regular/bold/italic/bold-italic), retaining Latin accents/macrons, Greek and common punctuation. The font license is in src/assets/LICENSE_DEJAVU.txt. Characters outside this coverage produce an explanatory error instead of silent text loss; JSON preserves all Unicode text.
 
 JSON **schemaVersion 2** replaces the previous top-level views with:
 
 - conditions.comfortable.frontal / sagittal
 - conditions.instructed.frontal / sagittal
 - comparisons.frontal / sagittal, keyed by stable metric IDs
+- interpretation: sanitized html, plain text, formatted blocks and local draft timestamp (additive schema v2 field)
 
 Each available photo includes resolved facing direction, its automatic/selected/unknown source, the selector setting, and other metadata, automatic landmarks, results, definitions, guide coordinates and quality warnings; no pixels or original filenames. CSV includes measurement/difference record types, condition/view/side/facing metadata, metric IDs, units and unavailable reasons. Missing values are null in JSON and blank in CSV; zero remains a real value.
 
-Photos and session data stay in page memory until clear/reload. No backend, image upload, browser session storage, analytics or automatic image collection. Model/WASM downloads disclose normal connection metadata to their hosts, not photo pixels. Explicit PDF export saves images; exports may identify people. Do not commit participant images to this public repository. Automated test examples use synthetic diagrams/landmarks only.
+Photos, landmarks and measurements stay in page memory until clear/reload. Only interpretation notes and study code are auto-saved to localStorage under posturelab.interpretation.v1: one draft per browser origin, saved after one second without typing, every 30 seconds while dirty, on blur and when leaving/hiding the page. Reload restores the notes and code, not photos/results. A visible status reports saving, restoration and failures; if storage is blocked/full, PDF and JSON still include current notes. Clearing the session or the notes draft removes the saved draft and cancels pending saves. Avoid identifying details and clear drafts on shared computers. Drafts are device-local, not synchronized or guaranteed against browser-data deletion. Paste inserts text only; persisted/exported formatting uses a rebuilt text-only HTML vocabulary with no attributes, links, scripts or media.
+
+No backend, image upload, analytics or automatic image collection. Model/WASM downloads disclose normal connection metadata to their hosts, not photo pixels. Explicit PDF export saves images and notes; exports may identify people. Do not commit participant images to this public repository. Automated test examples use synthetic diagrams/landmarks only.
 
 ## Open in StackBlitz
 
@@ -63,7 +68,7 @@ npm run build
 npm run dev
 ```
 
-Run npx playwright test for Edge integration checks on Windows. Elsewhere remove channel from playwright.config.js and install Playwright Chromium. Tests check hand-derived geometry, normalization, anatomical/image signs, null gating, angular wrapping, partial/mismatched comparisons, replacement/clearing, responsive layout, exports, and real-model load/no-person rejection. Synthetic landmark tests validate software behavior, not anatomical accuracy.
+Run npx playwright test for Edge integration checks on Windows. Elsewhere remove channel from playwright.config.js and install Playwright Chromium. Tests check hand-derived geometry, normalization, anatomical/image signs, null gating, angular wrapping, partial/mismatched comparisons, replacement/clearing, responsive layout, JPEG reports with synchronous requests blocked, rich-text restoration/clearing, 30-second backups, storage failures, sanitized drafts, exports, and real-model load/no-person rejection. Synthetic landmark tests validate software behavior, not anatomical accuracy.
 
 Representative consented-photo repeatability studies remain necessary, including different body types, clothing, camera rotation, selected sides and occlusion. Inference is synchronous per still image and may briefly block the interface.
 

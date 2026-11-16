@@ -1,5 +1,6 @@
 import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
 import { createStudentReport } from "./report.js";
+import { setupNotes } from "./notes.js";
 import { CREDIT, guidanceHTML } from "./guidance.js";
 import logoReversed from "./assets/university-logo-reversed.png";
 import {
@@ -22,10 +23,11 @@ app.innerHTML = `<header><div class="brand-row"><span>TEACHINGPOSE / STUDENT LAB
 <main><aside><b>Automatic posture observations for teaching</b><p>Take front and side photos in comfortable standing, then in the instructed anatomical position. Compare body-segment relationships and develop your own interpretation. All landmarks are automatic; photos stay in browser memory.</p><p class="scope-note">Descriptive 2D projections. Not clinically validated. No diagnosis, normal range, or clinically meaningful change threshold.</p></aside>
 <section class="toolbar"><label>Study code (optional, no names)<input id="code" maxlength="60" placeholder="e.g. CLASS-001"></label><button id="load">Load local analysis model</button><button id="clear">Clear session</button><p id="status" role="status" aria-live="polite">Load the model, select photographs, then confirm each view.</p></section>
 <div class="views"></div>${guidanceHTML(THRESHOLD)}
-<section class="comparisons"><p class="eyebrow">COMFORTABLE → INSTRUCTED</p><h2>Compare the two conditions</h2><p>Differences are instructed minus comfortable. They describe a response to instruction, not automatically improvement. Percentage differences are percentage points of the defined torso ratio. Use the same camera setup; rotation can affect the comparison.</p><div id="comparison-results"></div><div class="reflection"><b>Your interpretation</b><p>Which measurements changed together? What could camera position or landmark uncertainty explain? Which worksheet questions cannot be answered from these landmarks?</p></div></section>
+<section class="comparisons"><p class="eyebrow">COMFORTABLE → INSTRUCTED</p><h2>Compare the two conditions</h2><p>Differences are instructed minus comfortable. They describe a response to instruction, not automatically improvement. Percentage differences are percentage points of the defined torso ratio. Use the same camera setup; rotation can affect the comparison.</p><div id="comparison-results"></div><div class="reflection"><h3 id="interpretation-label">Your interpretation</h3><p id="interpretation-help">Describe your observations, reasoning and questions. Which measurements changed together? What could camera position or landmark uncertainty explain? Which worksheet questions cannot be answered from these landmarks?</p><div class="notes-toolbar" role="group" aria-label="Text formatting"><button type="button" data-note-command="bold" aria-label="Bold"><b>B</b></button><button type="button" data-note-command="italic" aria-label="Italic"><i>I</i></button><button type="button" data-note-command="underline" aria-label="Underline"><u>U</u></button><button type="button" data-note-command="insertUnorderedList">Bullet list</button><button type="button" data-note-command="insertOrderedList">Numbered list</button><button type="button" data-note-command="removeFormat">Remove formatting</button></div><div id="interpretation" class="notes-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="interpretation-label" aria-describedby="interpretation-help notes-privacy" data-placeholder="Write your interpretation here…"></div><p id="notes-status" role="status" aria-live="polite">No draft saved yet.</p><p id="notes-privacy" class="notes-help">Notes and study code save on this browser after a pause in typing, with a 30-second backup. One draft is kept on this device. Photos and measurements are not saved. Avoid names or identifying details. Notes appear in PDF and JSON downloads. Clear session also deletes the draft.</p><button id="clear-notes" type="button">Clear notes draft</button></div></section>
 <section><h2>Your student report</h2><p>Download annotated photographs and grouped comparisons. A partial session is allowed; missing photos and unavailable differences are clearly identified. CSV and JSON include condition labels and comparisons. Downloads may be identifiable.</p><button id="pdf" disabled>Download PDF report</button><button id="csv" disabled>Download CSV</button><button id="json" disabled>Download JSON</button><p id="report-status" role="status" aria-live="polite"></p></section>
 </main><footer><p>${CREDIT}</p><p class="footer-note">Automatic pose estimation powered by MediaPipe. Teaching and research use.</p></footer>`;
 const states = {};
+let notes;
 let model,
   loading = false,
   busy = false,
@@ -71,7 +73,7 @@ function comparisons() {
 function updateSummary() {
   for (const id of ["csv", "json", "pdf"])
     document.querySelector("#" + id).disabled =
-      !Object.values(states).some((s) => s.result) ||
+      !(Object.values(states).some((s) => s.result) || (id !== "csv" && notes?.snapshot().text.trim())) ||
       (id === "pdf" && reportPending);
   const paired = comparisons();
   document.querySelector("#comparison-results").innerHTML = VIEWS.map(
@@ -304,6 +306,7 @@ function render(state) {
     : "";
   updateSummary();
 }
+notes = setupNotes(updateSummary);
 updateSummary();
 document.querySelector("#load").onclick = async () => {
   if (loading || model) return;
@@ -361,9 +364,11 @@ document.querySelector("#clear").onclick = () => {
     render(s);
   }
   document.querySelector("#code").value = "";
+  notes.clear();
   document.querySelector("#report-status").textContent = "";
 };
 function snapshot() {
+  notes.save();
   return {
     schemaVersion: 2,
     createdAt: new Date().toISOString(),
@@ -373,6 +378,7 @@ function snapshot() {
       day: "numeric",
     }).format(new Date()),
     studyCode: document.querySelector("#code").value,
+    interpretation: notes.snapshot(),
     purpose: "Teaching and research only; not clinically validated",
     method: {
       model: MODEL,

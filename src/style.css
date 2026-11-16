@@ -283,6 +283,14 @@ select[aria-invalid="true"] {
   padding: 18px;
   border-radius: 10px;
 }
+.notes-toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 8px; }
+.notes-toolbar button, #clear-notes { padding: 8px 12px; margin: 0; font-size: 14px; background: white; color: #00335a; border: 1px solid #a9bfce; }
+.notes-editor { background: white; border: 1px solid #a9bfce; border-radius: 8px; min-height: 220px; padding: 16px; overflow-wrap: anywhere; line-height: 1.65; }
+.notes-editor:focus { outline: 3px solid #2187b2; outline-offset: 2px; }
+.notes-editor:empty::before { content: attr(data-placeholder); color: #657b8a; pointer-events: none; }
+.notes-editor p, .notes-editor ul, .notes-editor ol { margin: 0 0 10px; }
+.notes-help, #notes-status { font-size: 13px; color: #3c596d; }
+#notes-status.save-error { color: #8c4100; font-weight: 600; }
 .comparison-table td {
   vertical-align: top;
 }

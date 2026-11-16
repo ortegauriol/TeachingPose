@@ -2,6 +2,7 @@ import { jsPDF } from "jspdf";
 import logoUrl from "./assets/university-logo.png";
 import { guideLegend } from "./overlay.js";
 import { CREDIT } from "./guidance.js";
+import { noteBlocks } from "./notes.js";
 import { CONDITIONS, CONDITION_LABELS, VIEW_LABELS, VIEWS } from "./metrics.js";
 const navy = [0, 51, 90],
   ink = [32, 50, 65],
@@ -14,7 +15,17 @@ const plain = (text) =>
 function logoImage() {
   return new Promise((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve(image);
+    image.onload = () => {
+      // Embed decoded pixels, avoiding jsPDF's second, synchronous URL request.
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0);
+      resolve({ data: canvas.toDataURL("image/jpeg", 0.95), width: canvas.width, height: canvas.height });
+    };
     image.onerror = () =>
       reject(
         Error("The university logo could not load. Please retry the report."),
@@ -49,7 +60,7 @@ export async function createStudentReport(data, canvases) {
     if (pages++) pdf.addPage();
     pdf.setFillColor(...navy);
     pdf.rect(0, 0, 210, 4, "F");
-    pdf.addImage(logo, "PNG", 146, 10, 48, (48 * logo.height) / logo.width);
+    pdf.addImage(logo.data, "JPEG", 146, 10, 48, (48 * logo.height) / logo.width, "university-logo");
     text("POSTURELAB", 16, 17, 10, navy, true);
     text("Student posture report", 16, 31, 21, navy, true);
     text(title, 16, 43, 12, navy);
@@ -87,6 +98,7 @@ export async function createStudentReport(data, canvases) {
           83 + (103 - h) / 2,
           w,
           h,
+          c + "-" + view,
         );
       } else text("No analyzed photograph", x + 8, 135, 9, muted);
       if (result)
@@ -222,6 +234,57 @@ export async function createStudentReport(data, canvases) {
         pdf.setDrawColor(224, 232, 236);
         pdf.line(16, y - 3, 194, y - 3);
       }
+      y += 2;
+    }
+  }
+  const blocks = noteBlocks(data.interpretation?.html || "");
+  if (blocks.length) {
+    const { registerNoteFonts, supportsNoteText } = await import("./note-fonts.js");
+    if (!blocks.every(block => block.runs.every(run => supportsNoteText(run.text)))) {
+      throw Error("Some note characters are outside the PDF font's Latin and Greek coverage. Download JSON to preserve all text, or edit those characters and retry.");
+    }
+    registerNoteFonts(pdf);
+    page("Your interpretation", "Student observations, reasoning and questions");
+    let y = 80;
+    const newLine = () => {
+      y += 5.5;
+      if (y > 262) {
+        page("Your interpretation / continued", "Student observations, reasoning and questions");
+        y = 80;
+      }
+    };
+    for (const block of blocks) {
+      let x = 18;
+      const runs = [{ text: block.prefix }, ...block.runs];
+      for (const run of runs) {
+        const style = run.bold ? (run.italic ? "bolditalic" : "bold") : (run.italic ? "italic" : "normal");
+        for (const token of run.text.split(/(\s+)/).filter(Boolean)) {
+          // Split very long unbroken words, retaining style across page boundaries.
+          let fragment = "";
+          for (const character of token) {
+            pdf.setFont("PostureNotes", style);
+            pdf.setFontSize(10);
+            if (pdf.getTextWidth(fragment + character) > 172) {
+              if (x > 18) { newLine(); x = 18; }
+              draw(fragment); newLine(); x = 18; fragment = "";
+            }
+            fragment += character;
+          }
+          if (x + pdf.getTextWidth(fragment) > 190) { newLine(); x = 18; }
+          if (x === 18 && !fragment.trim()) continue;
+          draw(fragment);
+        }
+        function draw(value) {
+          pdf.setFont("PostureNotes", style);
+          pdf.setFontSize(10);
+          pdf.setTextColor(...ink);
+          pdf.text(value, x, y);
+          const width = pdf.getTextWidth(value);
+          if (run.underline) { pdf.setDrawColor(...ink); pdf.line(x, y + 0.8, x + width, y + 0.8); }
+          x += width;
+        }
+      }
+      newLine();
       y += 2;
     }
   }

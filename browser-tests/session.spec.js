@@ -37,8 +37,8 @@ async function mockModel(page, poses) {
     });
   });
 }
-async function photo(page, landmarks = fixture()) {
-  const png = await page.evaluate((l) => {
+async function photo(page, landmarks = fixture(), mimeType = "image/png") {
+  const png = await page.evaluate(({l, mimeType}) => {
     const c = document.createElement("canvas");
     c.width = 600;
     c.height = 900;
@@ -66,11 +66,11 @@ async function photo(page, landmarks = fixture()) {
     ctx.beginPath();
     ctx.arc(300, 130, 35, 0, Math.PI * 2);
     ctx.stroke();
-    return c.toDataURL().split(",")[1];
-  }, landmarks);
+    return c.toDataURL(mimeType, 0.9).split(",")[1];
+  }, {l: landmarks, mimeType});
   return {
-    name: "synthetic.png",
-    mimeType: "image/png",
+    name: mimeType === "image/jpeg" ? "synthetic.jpg" : "synthetic.png",
+    mimeType,
     buffer: Buffer.from(png, "base64"),
   };
 }
@@ -181,16 +181,22 @@ test("paired metrics, metadata safeguards, annotated overlays and all exports", 
   await page.goto("/");
   await page.getByRole("button", { name: "Load local analysis model" }).click();
   await expect(page.locator("#status")).toContainText("Model ready");
-  await upload(page, "comfortable-frontal", await photo(page, a));
+  await upload(page, "comfortable-frontal", await photo(page, a, "image/jpeg"));
   await expect(
     page.locator('.comparisons [data-metric="left_knee_angle"]'),
   ).toContainText("Analyze both conditions");
-  await upload(page, "instructed-frontal", await photo(page, b));
+  await upload(page, "instructed-frontal", await photo(page, b, "image/jpeg"));
   await expect(
     page.locator('.comparisons [data-metric="left_knee_angle"]'),
   ).toContainText("-18.9 deg");
-  await upload(page, "comfortable-sagittal", await photo(page, side));
-  await upload(page, "instructed-sagittal", await photo(page, side2));
+  await upload(page, "comfortable-sagittal", await photo(page, side, "image/jpeg"));
+  await upload(page, "instructed-sagittal", await photo(page, side2, "image/jpeg"));
+  await page.locator("#interpretation").evaluate(el => {
+    el.innerHTML = '<p><b>My observations</b></p><p>The projected knee and head relationships changed after instruction. This does not establish improvement.</p><p>Māori · café · αβ · “student notes”</p><ul><li>Check camera rotation and image quality.</li><li><i>These landmarks cannot describe spinal curvature.</i></li></ul>' + '<p>Further interpretation: repeat photographs and consider uncertainty before drawing conclusions.</p>'.repeat(55);
+    el.dispatchEvent(new Event('input', {bubbles:true}));
+  });
+  // Reproduce the original report failure: synchronous logo re-fetch is forbidden.
+  await page.evaluate(() => { XMLHttpRequest.prototype.send = function() { throw Error("Synchronous image fetch blocked"); }; });
   const c = card(page, "comfortable-frontal");
   await c.locator("[data-overlay]").selectOption("knees");
   await page.locator("#code").fill("SYNTHETIC DEMO - NOT A PARTICIPANT");
@@ -210,6 +216,8 @@ test("paired metrics, metadata safeguards, annotated overlays and all exports", 
     if (extension === "json") {
       const result = JSON.parse(data);
       expect(result.schemaVersion).toBe(2);
+      expect(result.interpretation.text).toContain("My observations");
+      expect(result.interpretation.html).toContain("<b>");
       expect(result.conditions.comfortable.frontal.landmarks).toHaveLength(33);
       expect(result.comparisons.frontal).toHaveLength(16);
       expect(result.comparisons.sagittal).toHaveLength(8);
@@ -267,6 +275,79 @@ test("paired metrics, metadata safeguards, annotated overlays and all exports", 
     page.getByRole("button", { name: "Download JSON" }),
   ).toBeDisabled();
   expect(errors).toEqual([]);
+});
+
+test("rich-text draft saves, restores, exports and clears without persisting photographs", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await page.clock.install();
+  const editor = page.getByRole("textbox", {name:"Your interpretation"});
+  await page.locator("#code").fill("NOTES-DEMO");
+  await editor.fill("My observations");
+  await editor.press("Control+a");
+  await page.getByRole("button", {name:"Bold", exact:true}).click();
+  expect(await editor.innerHTML()).toMatch(/<(b|strong)>/);
+  await page.clock.runFor(1100);
+  await expect(page.locator("#notes-status")).toContainText("Saved on this device");
+  await page.reload();
+  await expect(editor).toContainText("My observations");
+  await expect(page.locator("#code")).toHaveValue("NOTES-DEMO");
+  await expect(page.locator("#notes-status")).toContainText("Draft restored");
+  for (const canvas of await page.locator("canvas").all()) await expect(canvas).toHaveAttribute("width", "0");
+  await page.locator("#interpretation").evaluate(el=>{
+    el.innerHTML += '<ul><li>Consider uncertainty.</li></ul>';
+    el.dispatchEvent(new Event('input',{bubbles:true}));
+  });
+  const pending = page.waitForEvent("download");
+  await page.getByRole("button", {name:"Download JSON"}).click();
+  const json = JSON.parse(await readFile(await (await pending).path()));
+  expect(json.interpretation.text).toContain("- Consider uncertainty.");
+  expect(json.conditions.comfortable).toEqual({});
+  const pdf = page.waitForEvent("download");
+  await page.getByRole("button", {name:"Download PDF report"}).click();
+  await (await pdf).saveAs(testInfo.outputPath("notes-only.pdf"));
+  await editor.scrollIntoViewIfNeeded();
+  await page.screenshot({path:testInfo.outputPath("notes-editor.png"),fullPage:true});
+  const saved = await page.evaluate(()=>Object.values(localStorage));
+  expect(saved.join("")).not.toContain("data:image");
+  await page.getByRole("button", {name:"Clear session", exact:true}).click();
+  await expect(editor).toBeEmpty();
+  expect(await page.evaluate(()=>localStorage.getItem('posturelab.interpretation.v1'))).toBeNull();
+  await page.reload();
+  await expect(editor).toBeEmpty();
+  await expect(page.getByRole("button", {name:"Download PDF report"})).toBeDisabled();
+});
+
+test("30-second backup, unavailable storage and sanitized restored notes", async ({ page }) => {
+  await page.clock.install();
+  await page.goto("/");
+  const editor = page.locator("#interpretation");
+  for(let second=0;second<30;second++) {
+    await editor.fill("Continuously editing " + second);
+    await page.clock.runFor(900);
+  }
+  await editor.fill("Backup checkpoint");
+  await page.clock.runFor(900);
+  // Reach the interval while continuing to edit before the debounce expires.
+  for(let i=0;i<4;i++) { await editor.fill("Backup checkpoint " + i); await page.clock.runFor(600); }
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('posturelab.interpretation.v1')).html)).toContain("Backup checkpoint");
+  await page.evaluate(()=>{Storage.prototype.setItem=function(){throw new DOMException('Full','QuotaExceededError');};});
+  await editor.fill("Export this unsaved draft");
+  await page.clock.runFor(1100);
+  await expect(page.locator("#notes-status")).toContainText("could not be saved");
+  const pending=page.waitForEvent("download");
+  await page.getByRole("button",{name:"Download JSON"}).click();
+  const exported=JSON.parse(await readFile(await(await pending).path()));
+  expect(exported.interpretation.text).toBe("Export this unsaved draft");
+  await page.reload();
+  await page.evaluate(()=>localStorage.setItem('posturelab.interpretation.v1',JSON.stringify({version:1,html:'<p onclick="alert(1)">Safe <b>notes</b></p><img src="https://invalid.example/private.jpg"><script>window.compromised=true</script><iframe src="https://invalid.example"></iframe>'})));
+  await page.reload();
+  await expect(editor).toHaveText("Safe notes");
+  expect(await editor.innerHTML()).toBe('<p>Safe <b>notes</b></p>');
+  expect(await page.evaluate(()=>window.compromised)).toBeUndefined();
+  await editor.fill("New participant");
+  await page.getByRole("button",{name:"Clear notes draft"}).click();
+  await page.clock.runFor(31000);
+  expect(await page.evaluate(()=>localStorage.getItem('posturelab.interpretation.v1'))).toBeNull();
 });
 test("facing is detected automatically and uncertainty is resolved without rerunning inference", async ({
   page,
