@@ -4,6 +4,7 @@ import { CREDIT, guidanceHTML } from "./guidance.js";
 import logoReversed from "./assets/university-logo-reversed.png";
 import {
   analyze,
+  resolveFacing,
   compareResults,
   CONDITIONS,
   VIEWS,
@@ -46,6 +47,9 @@ function viewData(state) {
         height: state.canvas.height,
         side: state.view === "sagittal" ? state.side : null,
         facing: state.view === "sagittal" ? state.facing : null,
+        facingSource: state.view === "sagittal" ? state.facingSource : null,
+        facingSelection:
+          state.view === "sagittal" ? state.facingSelection : null,
         viewConfirmed: state.confirmed,
         overlayMode: state.overlay,
         ...state.result,
@@ -81,7 +85,7 @@ for (const view of VIEWS)
       section = document.createElement("section");
     section.dataset.session = key;
     section.innerHTML = `<p class="eyebrow">${CONDITION_LABELS[condition]} standing</p><h2>${VIEW_LABELS[view]}</h2><label>Photograph<input type="file" accept="image/jpeg,image/png,image/webp" data-file></label>
- ${view === "sagittal" ? '<div class="side-settings"><label>Visible anatomical side<select data-side><option value="left">Left</option><option value="right">Right</option></select></label><label>Participant faces<select data-facing><option value="unknown">Choose direction</option><option value="left">Image left</option><option value="right">Image right</option></select></label></div>' : ""}
+ ${view === "sagittal" ? '<div class="side-settings"><label>Visible anatomical side<select data-side><option value="left">Left</option><option value="right">Right</option></select></label><label>Facing direction (automatic)<select data-facing><option value="auto">Detect automatically</option><option value="left">Image left</option><option value="right">Image right</option></select></label></div><p class="facing-status" data-facing-status role="status" aria-live="polite">Facing direction will be estimated automatically after analysis.</p>' : ""}
  <label class="check"><input type="checkbox"> I confirm the view, full-body framing, unmirrored image and level camera.</label><button data-run>Analyze photograph</button><p data-message role="status">No photograph selected.</p>
  <label class="overlay-setting">Overlay guides<select data-overlay><option value="alignment">Body alignment</option><option value="knees">Lower-limb guides</option><option value="landmarks">Landmarks only</option></select></label>
  <canvas width="0" height="0" aria-label="Annotated ${condition} ${view} photograph"></canvas><p class="legend">Gold: estimated points · Green: connections · Coral: measurement guides</p><div data-results></div>`;
@@ -94,6 +98,8 @@ for (const view of VIEWS)
       canvas: section.querySelector("canvas"),
       side: "left",
       facing: "unknown",
+      facingSelection: "auto",
+      facingSource: "unknown",
       overlay: "alignment",
       confirmed: false,
     });
@@ -101,6 +107,11 @@ for (const view of VIEWS)
       const token = (state.token = (state.token || 0) + 1),
         session = generation;
       state.result = null;
+      state.facing = "unknown";
+      state.facingSource = "unknown";
+      state.facingSelection = "auto";
+      if (state.view === "sagittal")
+        section.querySelector("[data-facing]").value = "auto";
       state.image?.close();
       state.image = null;
       state.canvas.width = 0;
@@ -155,7 +166,7 @@ for (const view of VIEWS)
     };
     for (const [selector, property] of [
       ["[data-side]", "side"],
-      ["[data-facing]", "facing"],
+      ["[data-facing]", "facingSelection"],
     ])
       section.querySelector(selector)?.addEventListener("change", (e) => {
         state[property] = e.target.value;
@@ -184,8 +195,6 @@ for (const view of VIEWS)
           );
         state.result = { landmarks: result.landmarks[0] };
         recalculate(state);
-        section.querySelector("[data-message]").textContent =
-          "Analysis complete. Inspect the overlay and compare the conditions.";
       } catch (error) {
         state.result = null;
         render(state);
@@ -197,27 +206,40 @@ for (const view of VIEWS)
   }
 // Keep each condition's front and side photographs together in DOM and visual order.
 for (const [index, condition] of CONDITIONS.entries()) {
-  const flow = document.createElement('div');
-  flow.className = 'condition-flow ' + condition;
-  flow.setAttribute('role', 'group');
-  flow.setAttribute('aria-labelledby', condition + '-title');
-  flow.innerHTML = `<div class="flow-heading"><p class="eyebrow">Stage ${index + 1}</p><h2 id="${condition}-title">${CONDITION_LABELS[condition]} standing</h2><p>${condition === 'comfortable' ? 'Start here. Complete the front view, then the side view, without coaching the participant.' : 'Next, repeat both views after the course\'s anatomical standing instructions.'}</p></div>`;
+  const flow = document.createElement("div");
+  flow.className = "condition-flow " + condition;
+  flow.setAttribute("role", "group");
+  flow.setAttribute("aria-labelledby", condition + "-title");
+  flow.innerHTML = `<div class="flow-heading"><p class="eyebrow">Stage ${index + 1}</p><h2 id="${condition}-title">${CONDITION_LABELS[condition]} standing</h2><p>${condition === "comfortable" ? "Start here. Complete the front view, then the side view, without coaching the participant." : "Next, repeat both views after the course's anatomical standing instructions."}</p></div>`;
   for (const [step, view] of VIEWS.entries()) {
-    const section = states[condition + '-' + view].section;
-    section.querySelector('.eyebrow').remove();
-    section.querySelector('h2').outerHTML = `<h3 class="photo-heading"><span>${step + 1}.</span> ${VIEW_LABELS[view]}</h3>`;
+    const section = states[condition + "-" + view].section;
+    section.querySelector(".eyebrow").remove();
+    section.querySelector("h2").outerHTML =
+      `<h3 class="photo-heading"><span>${step + 1}.</span> ${VIEW_LABELS[view]}</h3>`;
     if (step) {
-      const transition = document.createElement('p');
-      transition.className = 'flow-transition';
-      transition.textContent = '↓ Continue to the side view';
+      const transition = document.createElement("p");
+      transition.className = "flow-transition";
+      transition.textContent = "↓ Continue to the side view";
       flow.append(transition);
     }
     flow.append(section);
   }
-  document.querySelector('.views').append(flow);
+  document.querySelector(".views").append(flow);
 }
 function recalculate(state) {
-  if (state.result)
+  if (state.result) {
+    if (state.view === "sagittal") {
+      const resolved = resolveFacing(
+        state.result.landmarks,
+        state.canvas.width,
+        state.canvas.height,
+        state.side,
+        state.facingSelection,
+      );
+      state.facing = resolved.facing;
+      state.facingSource = resolved.source;
+      state.facingMessage = resolved.message;
+    }
     Object.assign(
       state.result,
       analyze(
@@ -230,9 +252,28 @@ function recalculate(state) {
         state.facing,
       ),
     );
+    const available = state.result.rows.filter(
+      (row) => row.value !== null,
+    ).length;
+    state.section.querySelector("[data-message]").textContent =
+      state.view === "sagittal" && state.facing === "unknown"
+        ? `Pose detected. Action needed: choose facing direction above. ${available} of ${state.result.rows.length} measurements available.`
+        : `Analysis complete. ${available} of ${state.result.rows.length} measurements available. Inspect the overlay.`;
+  }
   render(state);
 }
 function render(state) {
+  if (state.view === "sagittal") {
+    const needsInput = Boolean(state.result && state.facing === "unknown");
+    const status = state.section.querySelector("[data-facing-status]");
+    status.textContent = state.result
+      ? state.facingMessage
+      : "Facing direction will be estimated automatically after analysis.";
+    status.classList.toggle("needs-input", needsInput);
+    state.section
+      .querySelector("[data-facing]")
+      .setAttribute("aria-invalid", String(needsInput));
+  }
   drawOverlay(
     state.canvas,
     state.image,
@@ -301,12 +342,14 @@ document.querySelector("#clear").onclick = () => {
     s.confirmed = false;
     s.side = "left";
     s.facing = "unknown";
+    s.facingSource = "unknown";
+    s.facingSelection = "auto";
     s.overlay = "alignment";
     s.section.querySelector("input[type=file]").value = "";
     s.section.querySelector("input[type=checkbox]").checked = false;
     for (const [selector, value] of [
       ["[data-side]", "left"],
-      ["[data-facing]", "unknown"],
+      ["[data-facing]", "auto"],
       ["[data-overlay]", "alignment"],
     ]) {
       const el = s.section.querySelector(selector);
@@ -382,6 +425,7 @@ document.querySelector("#csv").onclick = () => {
         "value",
         "unit",
         "unavailable_reason",
+        "facing_source",
       ],
     ];
   for (const [c, views] of Object.entries(data.conditions))
@@ -399,6 +443,7 @@ document.querySelector("#csv").onclick = () => {
           r.value,
           r.unit,
           r.reason,
+          s.facingSource,
         ]);
   for (const [v, metrics] of Object.entries(data.comparisons))
     for (const r of metrics)
@@ -414,6 +459,7 @@ document.querySelector("#csv").onclick = () => {
         r.difference,
         r.unit === "% torso" ? "percentage points" : r.unit,
         r.reason,
+        "",
       ]);
   const quote = (x) => '"' + String(x ?? "").replaceAll('"', '""') + '"';
   download(

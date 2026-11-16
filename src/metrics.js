@@ -22,6 +22,48 @@ export function point(l, i, w, h) {
 }
 export const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 export const midpoint = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+// Orientation metadata only: a conservative image-space nose/ear heuristic,
+// not a clinical measurement or a probability of anatomical accuracy.
+export function resolveFacing(landmarks, w, h, side, selection = "auto") {
+  if (["left", "right"].includes(selection)) {
+    return {
+      facing: selection,
+      source: "selected",
+      message: "Facing selected: image " + selection + ".",
+    };
+  }
+  const indices = side === "left" ? [7, 8, 11, 23] : [8, 7, 12, 24];
+  const nose = point(landmarks, 0, w, h),
+    [ear, otherEar, shoulder, hip] = indices.map((i) =>
+      point(landmarks, i, w, h),
+    );
+  const unknown = {
+    facing: "unknown",
+    source: "unknown",
+    message:
+      "Facing direction is uncertain. Choose Image left or Image right above to unlock directional measurements.",
+  };
+  if (!nose || !ear || !shoulder || !hip) return unknown;
+  const torso = distance(shoulder, hip);
+  if (torso < 1) return unknown;
+  const margin = Math.max(2, torso * 0.04),
+    dx = nose.x - ear.x;
+  if (Math.abs(dx) < margin) return unknown;
+  if (otherEar) {
+    const otherDx = nose.x - otherEar.x;
+    if (Math.abs(otherDx) >= margin && Math.sign(otherDx) !== Math.sign(dx))
+      return unknown;
+  }
+  const facing = dx < 0 ? "left" : "right";
+  return {
+    facing,
+    source: "automatic",
+    message:
+      "Facing detected: image " +
+      facing +
+      ". Check this against the photograph; override above if needed.",
+  };
+}
 export function lineAngle(a, b) {
   if (distance(a, b) < 1) return null;
   let d = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
@@ -184,7 +226,7 @@ export const CATALOG = [
     "Trunk and hips",
     "Trunk inclination",
     "deg",
-    "Selected hip to shoulder relative to vertical; positive anterior, using confirmed facing direction. Not spinal curvature.",
+    "Selected hip to shoulder relative to vertical; positive anterior, using detected or overridden facing direction. Not spinal curvature.",
   ],
   [
     "knee_bend",

@@ -7,7 +7,7 @@ Automatic 2D posture observations for undergraduate teaching and research. **Not
 1. Obtain consent and photograph comfortable standing without coaching.
 2. Photograph the course's instructed anatomical standing position.
 3. Upload front and side views of each condition (four independent slots). Keep the camera level, square to the participant and at the same position/distance/lens setting. Use full-body, unmirrored images.
-4. Load the analysis model, confirm each view, and select the visible anatomical side and facing direction for each side photo.
+4. Load the analysis model, confirm each view, and select the visible anatomical side for each side photo. Facing direction is estimated automatically; check the displayed estimate and override it only if needed.
 5. Analyze each photo. Choose body-alignment guides, lower-limb guides or landmarks only. Gold points/green connections show the automatic pose; coral guides and letter keys explain measurement references.
 6. Compare comfortable/instructed results, then develop your own interpretation. Partial sessions are supported. Failed detection requires a retake; no manual landmark correction is provided.
 7. Download a student PDF, CSV or JSON, then clear the session.
@@ -24,7 +24,7 @@ The photo workflow uses continuous vertical columns: comfortable standing (pale 
 
 Distances use percentages of torso length. Front reference: shoulder-midpoint to hip-midpoint distance. Side reference: selected shoulder-to-hip distance. Each photo uses its own reference; ratios are affected by projection and are not millimetres.
 
-Front height differences are right y minus left y (positive = estimated left point higher). Front trunk/hip offsets are positive image-right. Knee projection angles/offsets are positive medially towards the other hip, using the projected hip–ankle line. Side directional measures are positive anterior using the selected facing direction; they are withheld until direction is selected. Side knee bend is unsigned and does not distinguish flexion from hyperextension.
+Front height differences are right y minus left y (positive = estimated left point higher). Front trunk/hip offsets are positive image-right. Knee projection angles/offsets are positive medially towards the other hip, using the projected hip–ankle line. Side directional measures are positive anterior using the selected facing direction; they use automatic facing detection or a selected override; uncertain direction asks for a choice. Side knee bend is unsigned and does not distinguish flexion from hyperextension.
 
 All geometry uses image x/y scaled by image width/height. Visibility must be at least 0.65, coordinates must be inside the 1% image margin, and measured references must exceed one pixel. Visibility is not measurement accuracy. Missing/low-visibility/clipped landmarks, unconfirmed view or degenerate geometry withhold the affected values.
 
@@ -37,11 +37,12 @@ These estimates do not locate patellar centres, ASIS/PSIS, iliac crests, scapula
 The student PDF pairs annotated photos and provides grouped comparisons plus reflection prompts. Missing photos/results are labelled. Display values have one decimal place; exports retain calculated values.
 
 JSON **schemaVersion 2** replaces the previous top-level views with:
+
 - conditions.comfortable.frontal / sagittal
 - conditions.instructed.frontal / sagittal
 - comparisons.frontal / sagittal, keyed by stable metric IDs
 
-Each available photo includes metadata, automatic landmarks, results, definitions, guide coordinates and quality warnings; no pixels or original filenames. CSV includes measurement/difference record types, condition/view/side/facing metadata, metric IDs, units and unavailable reasons. Missing values are null in JSON and blank in CSV; zero remains a real value.
+Each available photo includes resolved facing direction, its automatic/selected/unknown source, the selector setting, and other metadata, automatic landmarks, results, definitions, guide coordinates and quality warnings; no pixels or original filenames. CSV includes measurement/difference record types, condition/view/side/facing metadata, metric IDs, units and unavailable reasons. Missing values are null in JSON and blank in CSV; zero remains a real value.
 
 Photos and session data stay in page memory until clear/reload. No backend, image upload, browser session storage, analytics or automatic image collection. Model/WASM downloads disclose normal connection metadata to their hosts, not photo pixels. Explicit PDF export saves images; exports may identify people. Do not commit participant images to this public repository. Automated test examples use synthetic diagrams/landmarks only.
 
@@ -73,3 +74,5 @@ University of Auckland primary PNGs were supplied by the user and included uncha
 The connected repository was initially empty with intended default main and write access. A README baseline was initialized before the feature branch. The supplied screenshot showed a separate google-ai-edge/mediapipe-samples-web StackBlitz import; those demo files were not overwritten.
 
 MediaPipe documentation: https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker
+
+Automatic facing is an image-space nose/ear heuristic with visibility gating, a separation threshold of max(2 pixels, 4% torso length), and a conflict check against the other visible ear. This orientation estimate needs visual review and is not clinically validated. New/replacement photos reset the selector to automatic. An explicit direction override recalculates stored landmarks immediately, without repeating inference. CSV includes facing_source.

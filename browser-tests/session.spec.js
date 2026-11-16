@@ -99,8 +99,17 @@ test("four photo slots, guidance, input validation, clearing and mobile layout",
     page.getByRole("heading", { name: "PostureLab", exact: true }),
   ).toBeVisible();
   await expect(page.locator(".views section")).toHaveCount(4);
-  await expect(page.locator('.views > .condition-flow')).toHaveCount(2);
-  expect(await page.locator('.views [data-session]').evaluateAll(nodes=>nodes.map(node=>node.dataset.session))).toEqual(['comfortable-frontal','comfortable-sagittal','instructed-frontal','instructed-sagittal']);
+  await expect(page.locator(".views > .condition-flow")).toHaveCount(2);
+  expect(
+    await page
+      .locator(".views [data-session]")
+      .evaluateAll((nodes) => nodes.map((node) => node.dataset.session)),
+  ).toEqual([
+    "comfortable-frontal",
+    "comfortable-sagittal",
+    "instructed-frontal",
+    "instructed-sagittal",
+  ]);
   await expect(page.locator("footer")).toContainText(
     "Dr. Pablo Ortega-Auriol, Research Fellow",
   );
@@ -116,13 +125,11 @@ test("four photo slots, guidance, input validation, clearing and mobile layout",
   const c = card(page, "comfortable-frontal");
   await c.getByRole("button", { name: "Analyze photograph" }).click();
   await expect(c.locator("[data-message]")).toContainText("Load the model");
-  await c
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "bad.png",
-      mimeType: "image/png",
-      buffer: Buffer.from("invalid"),
-    });
+  await c.locator("input[type=file]").setInputFiles({
+    name: "bad.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("invalid"),
+  });
   await expect(c.locator("[data-message]")).not.toContainText("No photograph");
   await c.locator("input[type=file]").setInputFiles(await photo(page));
   await expect(c.locator("[data-message]")).toContainText("Ready.");
@@ -261,6 +268,77 @@ test("paired metrics, metadata safeguards, annotated overlays and all exports", 
   ).toBeDisabled();
   expect(errors).toEqual([]);
 });
+test("facing is detected automatically and uncertainty is resolved without rerunning inference", async ({
+  page,
+}, testInfo) => {
+  const left = fixture();
+  for (const i of [7, 11, 23, 25, 27]) left[i].x = 0.5;
+  left[8].x = 0.51;
+  left[0].x = 0.35;
+  const ambiguous = structuredClone(left);
+  ambiguous[0].x = 0.5;
+  await mockModel(page, [left, left, ambiguous]);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Load local analysis model" }).click();
+  await expect(page.locator("#status")).toContainText("Model ready");
+  // Deliberately leave the facing controls untouched for the first two photographs.
+  for (const key of ["comfortable-sagittal", "instructed-sagittal"]) {
+    const c = card(page, key);
+    await c.locator("input[type=file]").setInputFiles(await photo(page, left));
+    await expect(c.locator("[data-message]")).toContainText("Ready.");
+    await c.getByRole("checkbox").check();
+    await c.getByRole("button", { name: "Analyze photograph" }).click();
+    await expect(c.locator("[data-facing-status]")).toContainText(
+      "Facing detected: image left",
+    );
+    await expect(c.locator("[data-results]")).toContainText(
+      "8 of 8 measurements available",
+    );
+  }
+  await expect(
+    page.locator('.comparisons [data-metric="ear_ankle_offset"]'),
+  ).toContainText("0.0 pp");
+  const pending = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download JSON" }).click();
+  const data = JSON.parse(await readFile(await (await pending).path()));
+  expect(data.conditions.comfortable.sagittal.facingSource).toBe("automatic");
+  expect(data.conditions.comfortable.sagittal.facing).toBe("left");
+  await page.screenshot({
+    path: testInfo.outputPath("auto-facing.png"),
+    fullPage: true,
+  });
+  const c = card(page, "comfortable-sagittal");
+  await c
+    .locator("input[type=file]")
+    .setInputFiles(await photo(page, ambiguous));
+  await expect(c.locator("[data-message]")).toContainText("Ready.");
+  await c.getByRole("checkbox").check();
+  await c.getByRole("button", { name: "Analyze photograph" }).click();
+  await expect(c.locator("[data-facing-status]")).toContainText(
+    "Facing direction is uncertain",
+  );
+  await expect(c.locator("[data-facing]")).toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
+  await expect(c.locator("[data-results]")).toContainText(
+    "1 of 8 measurements available",
+  );
+  await c.locator("[data-facing]").selectOption("left");
+  await expect(c.locator("[data-results]")).toContainText(
+    "8 of 8 measurements available",
+  );
+  await expect(c.locator("[data-message]")).toContainText(
+    "8 of 8 measurements available",
+  );
+  await expect(c.locator("[data-facing-status]")).toContainText(
+    "Facing selected: image left",
+  );
+  await c.locator("[data-facing]").selectOption("auto");
+  await expect(c.locator("[data-results]")).toContainText(
+    "1 of 8 measurements available",
+  );
+});
 test("real model loads and rejects an empty photograph", async ({ page }) => {
   test.setTimeout(120000);
   await page.goto("/");
@@ -277,13 +355,11 @@ test("real model loads and rejects an empty photograph", async ({ page }) => {
     return c.toDataURL().split(",")[1];
   });
   const c = card(page, "comfortable-frontal");
-  await c
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "blank.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(png, "base64"),
-    });
+  await c.locator("input[type=file]").setInputFiles({
+    name: "blank.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(png, "base64"),
+  });
   await expect(c.locator("[data-message]")).toContainText("Ready.");
   await c.getByRole("button", { name: "Analyze photograph" }).click();
   await expect(c.locator("[data-message]")).toContainText("No pose detected");

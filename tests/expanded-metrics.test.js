@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { analyze, compareResults } from "../src/metrics.js";
+import { analyze, compareResults, resolveFacing } from "../src/metrics.js";
 function fixture() {
   const l = Array.from({ length: 33 }, () => ({
     x: 0.5,
@@ -24,6 +24,26 @@ function fixture() {
 }
 const row = (a, id) => a.rows.find((r) => r.id === id);
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-8, `${a} != ${b}`);
+test("facing metadata is automatic for clear profiles and conservative for ambiguous faces", () => {
+  const l = fixture();
+  l[7].x = 0.5;
+  l[8].x = 0.51;
+  l[0].x = 0.35;
+  assert.equal(resolveFacing(l, 1000, 1000, "left").facing, "left");
+  l[0].x = 0.65;
+  assert.equal(resolveFacing(l, 1000, 1000, "left").facing, "right");
+  assert.equal(resolveFacing(l, 1000, 1000, "left").source, "automatic");
+  l[0].x = 0.501;
+  assert.equal(resolveFacing(l, 1000, 1000, "left").facing, "unknown");
+  l[0].x = 0.5;
+  l[7].x = 0.4;
+  l[8].x = 0.6;
+  assert.equal(resolveFacing(l, 1000, 1000, "left").facing, "unknown");
+  l[0].visibility = 0.1;
+  assert.equal(resolveFacing(l, 1000, 1000, "left").facing, "unknown");
+  assert.equal(resolveFacing(l, 1000, 1000, "left", "left").source, "selected");
+  assert.equal(resolveFacing(l, 1000, 1000, "left", "left").facing, "left");
+});
 test("normalized offsets and bilateral medial knee signs match hand geometry", () => {
   const l = fixture();
   l[25].x = 0.4;
