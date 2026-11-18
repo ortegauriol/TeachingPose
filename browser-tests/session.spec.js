@@ -23,7 +23,7 @@ function fixture() {
     Object.assign(l[i], { x, y });
   return l;
 }
-async function mockModel(page, poses) {
+async function mockModel(page, poses, {failures = {}, delay = 0} = {}) {
   await page.route("**/src/main.js*", async (route) => {
     const response = await route.fetch(),
       source = await response.text();
@@ -32,7 +32,7 @@ async function mockModel(page, poses) {
       contentType: "text/javascript",
       body: source.replace(
         /import\s*\{\s*FilesetResolver,\s*PoseLandmarker\s*\}\s*from\s*[^;]+;/,
-        `let call=0;const poses=${JSON.stringify(poses)};const FilesetResolver={forVisionTasks:async()=>({})};const PoseLandmarker={POSE_CONNECTIONS:[{start:11,end:12},{start:11,end:23},{start:12,end:24},{start:23,end:25},{start:25,end:27},{start:24,end:26},{start:26,end:28}],createFromOptions:async()=>({detect:()=>({landmarks:[poses[Math.min(call++,poses.length-1)]]})})};`,
+        `let call=0;const poses=${JSON.stringify(poses)},failures=${JSON.stringify(failures)};window.__modelLoads=[];window.__closedModels=[];const FilesetResolver={forVisionTasks:async()=>({})};const PoseLandmarker={POSE_CONNECTIONS:[{start:11,end:12},{start:11,end:23},{start:12,end:24},{start:23,end:25},{start:25,end:27},{start:24,end:26},{start:26,end:28}],createFromOptions:async(_,options)=>{const key=options.baseOptions.modelAssetPath.match(/pose_landmarker_(full|lite|heavy)\\.task$/)[1];window.__modelLoads.push(key);if(${delay})await new Promise(resolve=>setTimeout(resolve,${delay}));if(failures[key]>0){failures[key]--;throw Error('Test download failure');}return{close:()=>window.__closedModels.push(key),detect:()=>({landmarks:[poses[Math.min(call++,poses.length-1)]]})};}};`,
       ),
     });
   });
@@ -94,7 +94,9 @@ test("four photo slots, guidance, input validation, clearing and mobile layout",
 }, testInfo) => {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  await mockModel(page, [fixture()]);
   await page.goto("/");
+  await expect(page.locator("#status")).toContainText("Model ready");
   await expect(
     page.getByRole("heading", { name: "PostureLab", exact: true }),
   ).toBeVisible();
@@ -124,7 +126,7 @@ test("four photo slots, guidance, input validation, clearing and mobile layout",
   ).toBeDisabled();
   const c = card(page, "comfortable-frontal");
   await c.getByRole("button", { name: "Analyze photograph" }).click();
-  await expect(c.locator("[data-message]")).toContainText("Load the model");
+  await expect(c.locator("[data-message]")).toContainText("Select a photograph");
   await c.locator("input[type=file]").setInputFiles({
     name: "bad.png",
     mimeType: "image/png",
@@ -179,7 +181,6 @@ test("paired metrics, metadata safeguards, annotated overlays and all exports", 
   side2[7].x = 0.55;
   await mockModel(page, [a, b, side, side2]);
   await page.goto("/");
-  await page.getByRole("button", { name: "Load local analysis model" }).click();
   await expect(page.locator("#status")).toContainText("Model ready");
   await upload(page, "comfortable-frontal", await photo(page, a, "image/jpeg"));
   await expect(
@@ -278,6 +279,7 @@ test("paired metrics, metadata safeguards, annotated overlays and all exports", 
 });
 
 test("rich-text draft saves, restores, exports and clears without persisting photographs", async ({ page }, testInfo) => {
+  await mockModel(page, [fixture()]);
   await page.goto("/");
   await page.clock.install();
   const editor = page.getByRole("textbox", {name:"Your interpretation"});
@@ -318,6 +320,7 @@ test("rich-text draft saves, restores, exports and clears without persisting pho
 });
 
 test("30-second backup, unavailable storage and sanitized restored notes", async ({ page }) => {
+  await mockModel(page, [fixture()]);
   await page.clock.install();
   await page.goto("/");
   const editor = page.locator("#interpretation");
@@ -360,7 +363,6 @@ test("facing is detected automatically and uncertainty is resolved without rerun
   ambiguous[0].x = 0.5;
   await mockModel(page, [left, left, ambiguous]);
   await page.goto("/");
-  await page.getByRole("button", { name: "Load local analysis model" }).click();
   await expect(page.locator("#status")).toContainText("Model ready");
   // Deliberately leave the facing controls untouched for the first two photographs.
   for (const key of ["comfortable-sagittal", "instructed-sagittal"]) {
@@ -420,10 +422,78 @@ test("facing is detected automatically and uncertainty is resolved without rerun
     "1 of 8 measurements available",
   );
 });
-test("real model loads and rejects an empty photograph", async ({ page }) => {
+test("default model starts automatically, preserves early uploads and can retry a failed startup", async ({ page }) => {
+  await mockModel(page, [fixture()], {failures:{full:1}, delay:400});
+  await page.goto("/");
+  const c=card(page,"comfortable-frontal");
+  await expect(c.locator("[data-run]")).toBeDisabled();
+  await c.locator("input[type=file]").setInputFiles(await photo(page));
+  await expect(c.locator("[data-message]")).toContainText("Ready.");
+  await expect(page.locator("#status")).toContainText("could not load");
+  await expect(page.locator("#model-retry")).toBeVisible();
+  await page.getByRole("button",{name:"Retry model loading"}).click();
+  await expect(page.locator("#status")).toContainText("Model ready");
+  expect(await page.evaluate(()=>window.__modelLoads)).toEqual(["full","full"]);
+  await expect(c.locator("canvas")).toHaveAttribute("width","600");
+  await expect(c.locator("[data-run]")).toBeEnabled();
+  await expect(page.locator("#model-retry")).toBeHidden();
+  await expect(page.locator(".model-settings")).not.toHaveAttribute("open", "");
+  await c.getByRole("checkbox").check();
+  await c.locator("[data-run]").click();
+  await expect(c.locator("[data-results]")).toContainText("16 of 16 measurements available");
+});
+
+test("model changes are explicit, recover failures and keep photos and notes while invalidating old measurements", async ({ page },testInfo) => {
+  await mockModel(page,[fixture()],{failures:{lite:1},delay:250});
+  await page.goto("/");
+  await expect(page.locator("#status")).toContainText("Model ready");
+  await upload(page,"comfortable-frontal",await photo(page));
+  await upload(page,"instructed-frontal",await photo(page));
+  await page.locator("#interpretation").fill("Keep my interpretation when I change the model.");
+  await page.getByText("Model settings",{exact:true}).click();
+  await expect(page.locator("#load")).toBeDisabled();
+  await page.locator("#model-choice").selectOption("lite");
+  expect(await page.evaluate(()=>window.__modelLoads)).toEqual(["full"]);
+  await page.locator("#load").evaluate(button=>{button.click();button.click();});
+  await expect(page.locator("#model-choice")).toBeDisabled();
+  await expect(card(page,"comfortable-frontal").locator("[data-run]")).toBeDisabled();
+  await expect(page.locator("#status")).toContainText("Full is still active");
+  await expect(card(page,"comfortable-frontal").locator("[data-results]")).toContainText("16 of 16");
+  expect(await page.evaluate(()=>window.__closedModels)).toEqual([]);
+  const download=page.waitForEvent("download");
+  await page.getByRole("button",{name:"Download JSON"}).click();
+  const original=JSON.parse(await readFile(await(await download).path()));
+  expect(original.method.modelVariant).toBe("full");
+  await page.getByRole("button",{name:"Retry model loading"}).click();
+  await expect(page.locator("#model-current")).toHaveText("Active model: MediaPipe Pose Lite.");
+  expect(await page.evaluate(()=>window.__modelLoads)).toEqual(["full","lite","lite"]);
+  expect(await page.evaluate(()=>window.__closedModels)).toEqual(["full"]);
+  for(const key of ["comfortable-frontal","instructed-frontal"]) {
+    const c=card(page,key);
+    await expect(c.locator("canvas")).toHaveAttribute("width","600");
+    await expect(c.getByRole("checkbox")).toBeChecked();
+    await expect(c.locator("[data-results]")).toBeEmpty();
+    await expect(c.locator("[data-message]")).toContainText("Analyze this photograph again");
+    await c.locator("[data-run]").click();
+    await expect(c.locator("[data-results]")).toContainText("16 of 16");
+  }
+  await expect(page.locator("#interpretation")).toHaveText("Keep my interpretation when I change the model.");
+  const changed=page.waitForEvent("download");
+  await page.getByRole("button",{name:"Download JSON"}).click();
+  const updated=JSON.parse(await readFile(await(await changed).path()));
+  expect(updated.method.modelVariant).toBe("lite");
+  expect(updated.method.model).toContain("pose_landmarker_lite.task");
+  expect(updated.conditions.comfortable.frontal.model.variant).toBe("lite");
+  expect(updated.conditions.instructed.frontal.model.variant).toBe("lite");
+  await page.locator(".toolbar").screenshot({path:testInfo.outputPath("model-settings.png")});
+  await page.getByRole("button",{name:"Clear session",exact:true}).click();
+  expect(await page.evaluate(()=>window.__modelLoads)).toHaveLength(3);
+  await expect(page.locator("#model-current")).toContainText("Lite");
+});
+
+test("real models load automatically or on request and reject an empty photograph", async ({ page }) => {
   test.setTimeout(120000);
   await page.goto("/");
-  await page.getByRole("button", { name: "Load local analysis model" }).click();
   await expect(page.locator("#status")).toHaveText(
     "Model ready. Select photographs to begin.",
     { timeout: 90000 },
@@ -447,4 +517,10 @@ test("real model loads and rejects an empty photograph", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Download JSON" }),
   ).toBeDisabled();
+  await page.getByText("Model settings",{exact:true}).click();
+  await page.locator("#model-choice").selectOption("lite");
+  await page.getByRole("button",{name:"Load selected model"}).click();
+  await expect(page.locator("#model-current")).toContainText("MediaPipe Pose Lite",{timeout:90000});
+  await c.getByRole("button",{name:"Analyze photograph"}).click();
+  await expect(c.locator("[data-message]")).toContainText("No pose detected");
 });

@@ -145,6 +145,9 @@ button:disabled {
   opacity: 0.45;
   cursor: default;
 }
+.model-settings { margin-top: 16px; padding-top: 14px; border-top: 1px solid #d5e1e9; }
+.model-settings p { max-width: 780px; font-size: 14px; line-height: 1.6; }
+#model-current { font-weight: 600; }
 button:hover:enabled {
   background: #00335a;
 }

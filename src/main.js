@@ -16,12 +16,14 @@ import {
 import { drawOverlay, guideLegend } from "./overlay.js";
 import "./style.css";
 const VERSION = "0.10.22-rc.20250304";
-const MODEL =
-  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task";
+const MODELS = Object.fromEntries(["full", "lite", "heavy"].map(key => [key, {
+  name: "MediaPipe Pose " + key[0].toUpperCase() + key.slice(1),
+  url: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${key}/float16/1/pose_landmarker_${key}.task`,
+}]));
 const app = document.querySelector("#app");
 app.innerHTML = `<header><div class="brand-row"><span>TEACHINGPOSE / STUDENT LAB</span><img class="university-logo" src="${logoReversed}" alt="Waipapa Taumata Rau, University of Auckland"></div><h1>PostureLab</h1><p>Observe. Compare. Explain.</p></header>
 <main><aside><b>Automatic posture observations for teaching</b><p>Take front and side photos in comfortable standing, then in the instructed anatomical position. Compare body-segment relationships and develop your own interpretation. All landmarks are automatic; photos stay in browser memory.</p><p class="scope-note">Descriptive 2D projections. Not clinically validated. No diagnosis, normal range, or clinically meaningful change threshold.</p></aside>
-<section class="toolbar"><label>Study code (optional, no names)<input id="code" maxlength="60" placeholder="e.g. CLASS-001"></label><button id="load">Load local analysis model</button><button id="clear">Clear session</button><p id="status" role="status" aria-live="polite">Load the model, select photographs, then confirm each view.</p></section>
+<section class="toolbar"><label>Study code (optional, no names)<input id="code" maxlength="60" placeholder="e.g. CLASS-001"></label><button id="clear">Clear session</button><p id="status" role="status" aria-live="polite">Starting the default analysis model automatically…</p><button id="model-retry" hidden>Retry model loading</button><details class="model-settings"><summary>Model settings</summary><p>The default Full model loads automatically. You can choose another model below. Changing models keeps your photos and notes, but clears measurements so you can analyze all photos with the same model.</p><p id="model-current">No model ready yet.</p><label>Pose model<select id="model-choice"><option value="full">Full (default)</option><option value="lite">Lite (smaller download)</option><option value="heavy">Heavy (larger download)</option></select></label><button id="load">Load selected model</button></details></section>
 <div class="views"></div>${guidanceHTML(THRESHOLD)}
 <section class="comparisons"><p class="eyebrow">COMFORTABLE → INSTRUCTED</p><h2>Compare the two conditions</h2><p>Differences are instructed minus comfortable. They describe a response to instruction, not automatically improvement. Percentage differences are percentage points of the defined torso ratio. Use the same camera setup; rotation can affect the comparison.</p><div id="comparison-results"></div><div class="reflection"><h3 id="interpretation-label">Your interpretation</h3><p id="interpretation-help">Describe your observations, reasoning and questions. Which measurements changed together? What could camera position or landmark uncertainty explain? Which worksheet questions cannot be answered from these landmarks?</p><div class="notes-toolbar" role="group" aria-label="Text formatting"><button type="button" data-note-command="bold" aria-label="Bold"><b>B</b></button><button type="button" data-note-command="italic" aria-label="Italic"><i>I</i></button><button type="button" data-note-command="underline" aria-label="Underline"><u>U</u></button><button type="button" data-note-command="insertUnorderedList">Bullet list</button><button type="button" data-note-command="insertOrderedList">Numbered list</button><button type="button" data-note-command="removeFormat">Remove formatting</button></div><div id="interpretation" class="notes-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="interpretation-label" aria-describedby="interpretation-help notes-privacy" data-placeholder="Write your interpretation here…"></div><p id="notes-status" role="status" aria-live="polite">No draft saved yet.</p><p id="notes-privacy" class="notes-help">Notes and study code save on this browser after a pause in typing, with a 30-second backup. One draft is kept on this device. Photos and measurements are not saved. Avoid names or identifying details. Notes appear in PDF and JSON downloads. Clear session also deletes the draft.</p><button id="clear-notes" type="button">Clear notes draft</button></div></section>
 <section><h2>Your student report</h2><p>Download annotated photographs and grouped comparisons. A partial session is allowed; missing photos and unavailable differences are clearly identified. CSV and JSON include condition labels and comparisons. Downloads may be identifiable.</p><button id="pdf" disabled>Download PDF report</button><button id="csv" disabled>Download CSV</button><button id="json" disabled>Download JSON</button><p id="report-status" role="status" aria-live="polite"></p></section>
@@ -29,6 +31,9 @@ app.innerHTML = `<header><div class="brand-row"><span>TEACHINGPOSE / STUDENT LAB
 const states = {};
 let notes;
 let model,
+  activeModel = null,
+  failedModel = null,
+  modelRevision = 0,
   loading = false,
   busy = false,
   generation = 0,
@@ -182,7 +187,7 @@ for (const view of VIEWS)
       if (busy) return;
       if (!model || !state.image) {
         section.querySelector("[data-message]").textContent =
-          "Load the model and select a photograph first.";
+          model ? "Select a photograph first." : "The analysis model is not ready yet. Wait for loading or use Retry model loading.";
         return;
       }
       busy = true;
@@ -195,7 +200,7 @@ for (const view of VIEWS)
               ? "Multiple people detected. Use a single-person photograph."
               : "No pose detected. Try better lighting and full-body framing.",
           );
-        state.result = { landmarks: result.landmarks[0] };
+        state.result = { landmarks: result.landmarks[0], model: { variant: activeModel, ...MODELS[activeModel] } };
         recalculate(state);
       } catch (error) {
         state.result = null;
@@ -308,33 +313,66 @@ function render(state) {
 }
 notes = setupNotes(updateSummary);
 updateSummary();
-document.querySelector("#load").onclick = async () => {
-  if (loading || model) return;
+function updateModelControls() {
+  const choice = document.querySelector("#model-choice");
+  choice.disabled = loading;
+  document.querySelector("#load").disabled = loading || Boolean(model && choice.value === activeModel);
+  document.querySelector("#model-retry").disabled = loading;
+  document.querySelector("#model-retry").hidden = loading || choice.value !== failedModel;
+  for (const state of Object.values(states)) state.section.querySelector("[data-run]").disabled = loading || !model;
+}
+async function loadModel(key) {
+  if (loading || !MODELS[key] || (model && key === activeModel)) return;
   loading = true;
+  failedModel = null;
   const status = document.querySelector("#status");
+  const previous = model;
+  document.querySelector("#model-retry").hidden = true;
+  updateModelControls();
   status.textContent =
-    "Downloading the analysis model. Processing will run on this device…";
+    "Loading " + MODELS[key].name + ". Processing will run on this device… You can select photographs while it loads.";
   try {
     const files = await FilesetResolver.forVisionTasks(
       `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VERSION}/wasm`,
     );
-    model = await PoseLandmarker.createFromOptions(files, {
-      baseOptions: { modelAssetPath: MODEL, delegate: "CPU" },
+    const next = await PoseLandmarker.createFromOptions(files, {
+      baseOptions: { modelAssetPath: MODELS[key].url, delegate: "CPU" },
       runningMode: "IMAGE",
       numPoses: 2,
       minPoseDetectionConfidence: 0.5,
       minPosePresenceConfidence: 0.5,
       outputSegmentationMasks: false,
     });
-    status.textContent = "Model ready. Select photographs to begin.";
-    document.querySelector("#load").disabled = true;
+    model = next;
+    activeModel = key;
+    if (previous) {
+      modelRevision++;
+      for (const state of Object.values(states)) {
+        state.result = null;
+        render(state);
+        if (state.image) state.section.querySelector("[data-message]").textContent = "Model changed. Analyze this photograph again to update its measurements.";
+      }
+      // Release the replaced model only after the new one has initialized successfully.
+      try { previous.close?.(); } catch (error) { console.warn("Previous model cleanup failed", error); }
+      document.querySelector("#report-status").textContent = "Model changed. Analyze your photographs again before downloading measurements.";
+    }
+    document.querySelector("#model-current").textContent = "Active model: " + MODELS[key].name + ".";
+    status.textContent = previous ? "Model ready. " + MODELS[key].name + " is active. Analyze your photographs again." : "Model ready. Select photographs to begin.";
   } catch (error) {
+    failedModel = key;
     status.textContent =
-      "Model could not load. Check internet access and retry. " + error.message;
+      MODELS[key].name + " could not load. Check internet access and retry. " +
+      (model ? MODELS[activeModel].name + " is still active; existing measurements have been kept. " : "") + error.message;
+    document.querySelector("#model-retry").hidden = false;
   } finally {
     loading = false;
+    updateModelControls();
   }
-};
+}
+document.querySelector("#model-choice").onchange = updateModelControls;
+document.querySelector("#load").onclick = () => loadModel(document.querySelector("#model-choice").value);
+document.querySelector("#model-retry").onclick = () => loadModel(document.querySelector("#model-choice").value);
+void loadModel("full");
 document.querySelector("#clear").onclick = () => {
   generation++;
   for (const s of Object.values(states)) {
@@ -381,7 +419,8 @@ function snapshot() {
     interpretation: notes.snapshot(),
     purpose: "Teaching and research only; not clinically validated",
     method: {
-      model: MODEL,
+      model: activeModel ? MODELS[activeModel].url : null,
+      modelVariant: activeModel,
       packageVersion: VERSION,
       visibilityThreshold: THRESHOLD,
       coordinates: "Aspect-corrected image x/y; z is not used",
@@ -432,6 +471,7 @@ document.querySelector("#csv").onclick = () => {
         "unit",
         "unavailable_reason",
         "facing_source",
+        "model_variant",
       ],
     ];
   for (const [c, views] of Object.entries(data.conditions))
@@ -450,6 +490,7 @@ document.querySelector("#csv").onclick = () => {
           r.unit,
           r.reason,
           s.facingSource,
+          s.model.variant,
         ]);
   for (const [v, metrics] of Object.entries(data.comparisons))
     for (const r of metrics)
@@ -466,6 +507,7 @@ document.querySelector("#csv").onclick = () => {
         r.unit === "% torso" ? "percentage points" : r.unit,
         r.reason,
         "",
+        activeModel,
       ]);
   const quote = (x) => '"' + String(x ?? "").replaceAll('"', '""') + '"';
   download(
@@ -479,7 +521,8 @@ document.querySelector("#pdf").onclick = async () => {
   reportPending = true;
   updateSummary();
   const status = document.querySelector("#report-status"),
-    session = generation;
+    session = generation,
+    reportModelRevision = modelRevision;
   status.textContent = "Preparing your student report…";
   try {
     const data = snapshot(),
@@ -493,13 +536,13 @@ document.querySelector("#pdf").onclick = async () => {
       canvases[s.key] = copy;
     }
     const pdf = await createStudentReport(data, canvases);
-    if (session === generation) {
+    if (session === generation && reportModelRevision === modelRevision) {
       pdf.save("posturelab-report.pdf");
       status.textContent =
         "Report downloaded. Store it securely and clear the session when finished.";
     }
   } catch (error) {
-    if (session === generation)
+    if (session === generation && reportModelRevision === modelRevision)
       status.textContent = "Report could not be created. " + error.message;
   } finally {
     reportPending = false;

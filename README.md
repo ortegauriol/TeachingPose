@@ -7,7 +7,7 @@ Automatic 2D posture observations for undergraduate teaching and research. **Not
 1. Obtain consent and photograph comfortable standing without coaching.
 2. Photograph the course's instructed anatomical standing position.
 3. Upload front and side views of each condition (four independent slots). Keep the camera level, square to the participant and at the same position/distance/lens setting. Use full-body, unmirrored images.
-4. Load the analysis model, confirm each view, and select the visible anatomical side for each side photo. Facing direction is estimated automatically; check the displayed estimate and override it only if needed.
+4. The default MediaPipe Pose Full model loads automatically when the app opens. Wait for “Model ready,” confirm each view, and select the visible anatomical side for each side photo. Facing direction is estimated automatically; check the displayed estimate and override it only if needed.
 5. Analyze each photo. Choose body-alignment guides, lower-limb guides or landmarks only. Gold points/green connections show the automatic pose; coral guides and letter keys explain measurement references.
 6. Compare comfortable/instructed results, then develop your own interpretation. Partial sessions are supported. Failed detection requires a retake; no manual landmark correction is provided.
 7. Download a student PDF, CSV or JSON, then clear the session.
@@ -15,6 +15,8 @@ Automatic 2D posture observations for undergraduate teaching and research. **Not
 Photo guidance, definitions, normalization and sign conventions are directly below the upload areas. Comparisons are grouped into head/shoulders, trunk/hips and lower limbs. A difference describes a response to instruction, not automatically improvement.
 
 The photo workflow uses continuous vertical columns: comfortable standing (pale blue) and instructed standing (pale green), with front then side view in each. On mobile the complete comfortable workflow precedes the instructed workflow.
+
+Model settings is an optional, collapsed section. Choose Full, Lite or Heavy and click Load selected model to switch; selecting an option alone does not load it. Analysis is disabled while a model loads, and a visible Retry model loading button appears after a failure. A failed replacement preserves the working model and existing results. A successful replacement releases the old model and clears all measurements/overlays, preserving photos, confirmations and interpretation notes for reanalysis. Reload starts with Full again. JSON records the model variant/URL globally and for each analyzed photo; CSV has an additional model_variant column. All variants use the same 33-landmark layout; switching does not establish anatomical accuracy or clinical validation.
 
 ## Measurements
 
@@ -68,7 +70,7 @@ npm run build
 npm run dev
 ```
 
-Run npx playwright test for Edge integration checks on Windows. Elsewhere remove channel from playwright.config.js and install Playwright Chromium. Tests check hand-derived geometry, normalization, anatomical/image signs, null gating, angular wrapping, partial/mismatched comparisons, replacement/clearing, responsive layout, JPEG reports with synchronous requests blocked, rich-text restoration/clearing, 30-second backups, storage failures, sanitized drafts, exports, and real-model load/no-person rejection. Synthetic landmark tests validate software behavior, not anatomical accuracy.
+Run npx playwright test for Edge integration checks on Windows. Elsewhere remove channel from playwright.config.js and install Playwright Chromium. Tests check hand-derived geometry, normalization, anatomical/image signs, null gating, angular wrapping, partial/mismatched comparisons, replacement/clearing, responsive layout, JPEG reports with synchronous requests blocked, rich-text restoration/clearing, 30-second backups, storage failures, sanitized drafts, exports, automatic model startup/retry, explicit switching/failure recovery, model provenance, and real Full/Lite model load/no-person rejection. Synthetic landmark tests validate software behavior, not anatomical accuracy.
 
 Representative consented-photo repeatability studies remain necessary, including different body types, clothing, camera rotation, selected sides and occlusion. Inference is synchronous per still image and may briefly block the interface.
 
