@@ -1,0 +1,68 @@
+name: Android test APK
+on:
+  push:
+    branches: [feat/posturelab-android]
+  pull_request:
+    branches: [feat/posturelab-prototype, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  android:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+          log-accepted-android-sdk-licenses: false
+      - run: npm ci
+      - run: npm test
+      - run: npm run android:sync
+      - run: chmod +x android/gradlew
+      - name: Compile, lint and test Android
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug lintDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: posturelab-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Exercise installed app with bundled models
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_5
+          ram-size: 2048M
+          disable-animations: true
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -camera-back emulated -camera-front emulated
+          script: npm run android:smoke
+      - name: Collect smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: posturelab-android-smoke
+          path: android-smoke-results/
+          if-no-files-found: ignore
+          retention-days: 7

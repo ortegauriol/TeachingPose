@@ -1,6 +1,7 @@
 import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
 import { createStudentReport } from "./report.js";
 import { setupNotes } from "./notes.js";
+import { isAndroid, bundledModels, chooseNativePhoto, deliverExport, clearNativeTemporaryFiles } from "./platform.js";
 import { CREDIT, guidanceHTML } from "./guidance.js";
 import logoReversed from "./assets/university-logo-reversed.png";
 import {
@@ -19,12 +20,15 @@ const VERSION = "0.10.22-rc.20250304";
 const MODELS = Object.fromEntries(["full", "lite", "heavy"].map(key => [key, {
   name: "MediaPipe Pose " + key[0].toUpperCase() + key.slice(1),
   url: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${key}/float16/1/pose_landmarker_${key}.task`,
+  runtimeUrl: bundledModels ? `/models/pose_landmarker_${key}.task` : `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_${key}/float16/1/pose_landmarker_${key}.task`,
+  source: bundledModels ? "bundled-offline" : "google-hosted-download",
 }]));
+document.body.classList.toggle("native-app", isAndroid);
 const app = document.querySelector("#app");
 app.innerHTML = `<header><div class="brand-row"><span>TEACHINGPOSE / STUDENT LAB</span><img class="university-logo" src="${logoReversed}" alt="Waipapa Taumata Rau, University of Auckland"></div><h1>PostureLab</h1><p>Observe. Compare. Explain.</p></header>
 <main><aside><b>Automatic posture observations for teaching</b><p>Take front and side photos in comfortable standing, then in the instructed anatomical position. Compare body-segment relationships and develop your own interpretation. All landmarks are automatic; photos stay in browser memory.</p><p class="scope-note">Descriptive 2D projections. Not clinically validated. No diagnosis, normal range, or clinically meaningful change threshold.</p></aside>
 <section class="toolbar"><label>Study code (optional, no names)<input id="code" maxlength="60" placeholder="e.g. CLASS-001"></label><button id="clear">Clear session</button><p id="status" role="status" aria-live="polite">Starting the default analysis model automatically…</p><button id="model-retry" hidden>Retry model loading</button><details class="model-settings"><summary>Model settings</summary><p>The default Full model loads automatically. You can choose another model below. Changing models keeps your photos and notes, but clears measurements so you can analyze all photos with the same model.</p><p id="model-current">No model ready yet.</p><label>Pose model<select id="model-choice"><option value="full">Full (default)</option><option value="lite">Lite (smaller download)</option><option value="heavy">Heavy (larger download)</option></select></label><button id="load">Load selected model</button></details></section>
-<div class="views"></div>${guidanceHTML(THRESHOLD)}
+<div class="views"></div>${guidanceHTML(THRESHOLD, {isAndroid, bundledModels})}
 <section class="comparisons"><p class="eyebrow">COMFORTABLE → INSTRUCTED</p><h2>Compare the two conditions</h2><p>Differences are instructed minus comfortable. They describe a response to instruction, not automatically improvement. Percentage differences are percentage points of the defined torso ratio. Use the same camera setup; rotation can affect the comparison.</p><div id="comparison-results"></div><div class="reflection"><h3 id="interpretation-label">Your interpretation</h3><p id="interpretation-help">Describe your observations, reasoning and questions. Which measurements changed together? What could camera position or landmark uncertainty explain? Which worksheet questions cannot be answered from these landmarks?</p><div class="notes-toolbar" role="group" aria-label="Text formatting"><button type="button" data-note-command="bold" aria-label="Bold"><b>B</b></button><button type="button" data-note-command="italic" aria-label="Italic"><i>I</i></button><button type="button" data-note-command="underline" aria-label="Underline"><u>U</u></button><button type="button" data-note-command="insertUnorderedList">Bullet list</button><button type="button" data-note-command="insertOrderedList">Numbered list</button><button type="button" data-note-command="removeFormat">Remove formatting</button></div><div id="interpretation" class="notes-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="interpretation-label" aria-describedby="interpretation-help notes-privacy" data-placeholder="Write your interpretation here…"></div><p id="notes-status" role="status" aria-live="polite">No draft saved yet.</p><p id="notes-privacy" class="notes-help">Notes and study code save on this browser after a pause in typing, with a 30-second backup. One draft is kept on this device. Photos and measurements are not saved. Avoid names or identifying details. Notes appear in PDF and JSON downloads. Clear session also deletes the draft.</p><button id="clear-notes" type="button">Clear notes draft</button></div></section>
 <section><h2>Your student report</h2><p>Download annotated photographs and grouped comparisons. A partial session is allowed; missing photos and unavailable differences are clearly identified. CSV and JSON include condition labels and comparisons. Downloads may be identifiable.</p><button id="pdf" disabled>Download PDF report</button><button id="csv" disabled>Download CSV</button><button id="json" disabled>Download JSON</button><p id="report-status" role="status" aria-live="polite"></p></section>
 </main><footer><p>${CREDIT}</p><p class="footer-note">Automatic pose estimation powered by MediaPipe. Teaching and research use.</p></footer>`;
@@ -37,7 +41,9 @@ let model,
   loading = false,
   busy = false,
   generation = 0,
-  reportPending = false;
+  reportPending = false,
+  fileOperationPending = false,
+  photoPending = false;
 const format = (value, unit) =>
   value === null ? "Unavailable" : value.toFixed(1) + " " + unit;
 const formatDelta = (value, unit) =>
@@ -76,10 +82,10 @@ function comparisons() {
   );
 }
 function updateSummary() {
-  for (const id of ["csv", "json", "pdf"])
+  for (const id of ["csv", "json", "pdf", "share-pdf"])
     document.querySelector("#" + id).disabled =
       !(Object.values(states).some((s) => s.result) || (id !== "csv" && notes?.snapshot().text.trim())) ||
-      (id === "pdf" && reportPending);
+      fileOperationPending || (["pdf", "share-pdf"].includes(id) && reportPending);
   const paired = comparisons();
   document.querySelector("#comparison-results").innerHTML = VIEWS.map(
     (v) =>
@@ -110,7 +116,7 @@ for (const view of VIEWS)
       overlay: "alignment",
       confirmed: false,
     });
-    section.querySelector("[data-file]").onchange = async (e) => {
+    state.loadPhoto = async (file) => {
       const token = (state.token = (state.token || 0) + 1),
         session = generation;
       state.result = null;
@@ -126,7 +132,6 @@ for (const view of VIEWS)
       state.confirmed = false;
       section.querySelector("input[type=checkbox]").checked = false;
       render(state);
-      const file = e.target.files[0];
       if (!file) {
         section.querySelector("[data-message]").textContent =
           "No photograph selected.";
@@ -167,6 +172,33 @@ for (const view of VIEWS)
           section.querySelector("[data-message]").textContent = error.message;
       }
     };
+    section.querySelector("[data-file]").onchange = e => state.loadPhoto(e.target.files[0]);
+    if (isAndroid) {
+      const fileLabel = section.querySelector("[data-file]").closest("label");
+      fileLabel.hidden = true;
+      const controls = document.createElement("div");
+      controls.className = "phone-photo-controls";
+      controls.innerHTML = '<p>Photograph</p><button type="button" data-phone-photo="gallery">Choose photograph</button><button type="button" data-phone-photo="camera">Take photograph</button>';
+      fileLabel.after(controls);
+      for (const button of controls.querySelectorAll("button")) button.onclick = async () => {
+        if (photoPending) return;
+        photoPending = true;
+        const photoSession = generation;
+        const message = section.querySelector("[data-message]"), previous = message.textContent;
+        document.querySelectorAll("[data-phone-photo]").forEach(b => b.disabled = true);
+        message.textContent = button.dataset.phonePhoto === "camera" ? "Opening camera…" : "Opening photo picker…";
+        try {
+          const photo = await chooseNativePhoto(button.dataset.phonePhoto);
+          if (photoSession !== generation) return;
+          if (photo) await state.loadPhoto(photo);
+          else message.textContent = previous;
+        } catch (error) { message.textContent = "Photograph could not be selected. " + error.message; }
+        finally {
+          photoPending = false;
+          document.querySelectorAll("[data-phone-photo]").forEach(b => b.disabled = false);
+        }
+      };
+    }
     section.querySelector("input[type=checkbox]").onchange = (e) => {
       state.confirmed = e.target.checked;
       recalculate(state);
@@ -311,6 +343,19 @@ function render(state) {
     : "";
   updateSummary();
 }
+const shareButton = document.createElement("button");
+shareButton.id = "share-pdf";
+shareButton.textContent = "Share PDF report";
+shareButton.hidden = !isAndroid;
+document.querySelector("#pdf").after(shareButton);
+if (isAndroid) {
+  for (const [id, text] of [["pdf", "Save PDF report"], ["csv", "Save CSV"], ["json", "Save JSON"]]) document.querySelector("#" + id).textContent = text;
+  document.querySelector("#notes-privacy").textContent = "Notes and study code save on this device after a pause in typing, with a 30-second backup. Photos and measurements stay in app memory only. Avoid names or identifying details. Saved or shared reports may contain photographs; clear the session after confirming your export.";
+}
+if (bundledModels) {
+  document.querySelector(".model-settings p").textContent = "All three pose models are included in this app and work offline. Full loads automatically. Changing models keeps photos and notes, but clears measurements for reanalysis.";
+  for (const option of document.querySelector("#model-choice").options) option.textContent = option.value === "full" ? "Full (default)" : option.value[0].toUpperCase() + option.value.slice(1);
+}
 notes = setupNotes(updateSummary);
 updateSummary();
 function updateModelControls() {
@@ -333,10 +378,10 @@ async function loadModel(key) {
     "Loading " + MODELS[key].name + ". Processing will run on this device… You can select photographs while it loads.";
   try {
     const files = await FilesetResolver.forVisionTasks(
-      `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VERSION}/wasm`,
+      bundledModels ? "/mediapipe/wasm" : `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VERSION}/wasm`,
     );
     const next = await PoseLandmarker.createFromOptions(files, {
-      baseOptions: { modelAssetPath: MODELS[key].url, delegate: "CPU" },
+      baseOptions: { modelAssetPath: MODELS[key].runtimeUrl, delegate: "CPU" },
       runningMode: "IMAGE",
       numPoses: 2,
       minPoseDetectionConfidence: 0.5,
@@ -404,6 +449,9 @@ document.querySelector("#clear").onclick = () => {
   document.querySelector("#code").value = "";
   notes.clear();
   document.querySelector("#report-status").textContent = "";
+  void clearNativeTemporaryFiles().catch(() => {
+    document.querySelector("#report-status").textContent = "Session cleared, but temporary export files could not be removed. Clear the app's storage before sharing this device.";
+  });
 };
 function snapshot() {
   notes.save();
@@ -421,6 +469,7 @@ function snapshot() {
     method: {
       model: activeModel ? MODELS[activeModel].url : null,
       modelVariant: activeModel,
+      modelSource: bundledModels ? "bundled-offline" : "google-hosted-download",
       packageVersion: VERSION,
       visibilityThreshold: THRESHOLD,
       coordinates: "Aspect-corrected image x/y; z is not used",
@@ -445,13 +494,14 @@ function snapshot() {
     comparisons: comparisons(),
   };
 }
-function download(content, type, ext) {
-  const url = URL.createObjectURL(new Blob([content], { type })),
-    a = document.createElement("a");
-  a.href = url;
-  a.download = "posturelab." + ext;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+async function download(content, type, ext) {
+  if (fileOperationPending) return;
+  fileOperationPending = true;
+  updateSummary();
+  const status = document.querySelector("#report-status");
+  try { status.textContent = await deliverExport(new Blob([content], {type}), "posturelab." + ext); }
+  catch (error) { status.textContent = "Export could not be saved. " + error.message; }
+  finally { fileOperationPending = false; updateSummary(); }
 }
 document.querySelector("#json").onclick = () =>
   download(JSON.stringify(snapshot(), null, 2), "application/json", "json");
@@ -516,9 +566,10 @@ document.querySelector("#csv").onclick = () => {
     "csv",
   );
 };
-document.querySelector("#pdf").onclick = async () => {
-  if (reportPending) return;
+async function exportPDF(share = false) {
+  if (reportPending || fileOperationPending) return;
   reportPending = true;
+  fileOperationPending = true;
   updateSummary();
   const status = document.querySelector("#report-status"),
     session = generation,
@@ -537,15 +588,16 @@ document.querySelector("#pdf").onclick = async () => {
     }
     const pdf = await createStudentReport(data, canvases);
     if (session === generation && reportModelRevision === modelRevision) {
-      pdf.save("posturelab-report.pdf");
-      status.textContent =
-        "Report downloaded. Store it securely and clear the session when finished.";
+      status.textContent = await deliverExport(pdf.output("blob"), "posturelab-report.pdf", share);
     }
   } catch (error) {
     if (session === generation && reportModelRevision === modelRevision)
       status.textContent = "Report could not be created. " + error.message;
   } finally {
     reportPending = false;
+    fileOperationPending = false;
     updateSummary();
   }
-};
+}
+document.querySelector("#pdf").onclick = () => exportPDF();
+document.querySelector("#share-pdf").onclick = () => exportPDF(true);

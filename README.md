@@ -1,5 +1,7 @@
 # PostureLab / TeachingPose
 
+**Android branch:** this branch adds a standalone Android test app with bundled offline models, native camera/photo selection and native save/share controls. See [ANDROID.md](ANDROID.md) for APK installation, privacy, build steps and device checks. The browser prototype is retained on `feat/posturelab-prototype`.
+
 Automatic 2D posture observations for undergraduate teaching and research. **Not clinically validated. No diagnostic classifications, normal ranges or meaningful-change thresholds.** All landmarks are placed by MediaPipe, with no manual editing.
 
 ## Student workflow

@@ -117,6 +117,7 @@ aside {
 h2 {
   font-size: 21px;
 }
+[hidden] { display: none !important; }
 label {
   display: block;
   margin: 16px 0;
@@ -148,6 +149,12 @@ button:disabled {
 .model-settings { margin-top: 16px; padding-top: 14px; border-top: 1px solid #d5e1e9; }
 .model-settings p { max-width: 780px; font-size: 14px; line-height: 1.6; }
 #model-current { font-weight: 600; }
+.native-app { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.native-app button, .native-app select { min-height: 44px; }
+.native-app input, .native-app select, .native-app .notes-editor { font-size: 16px; }
+.phone-photo-controls { margin-bottom: 20px; }
+.phone-photo-controls p { margin-bottom: 8px; font-weight: 500; }
+.native-app .notes-editor { min-height: 260px; }
 button:hover:enabled {
   background: #00335a;
 }
