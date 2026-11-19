@@ -1,4 +1,4 @@
-import { chromium } from "@playwright/test";
+import { _android as android } from "playwright";
 import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import assert from "node:assert/strict";
@@ -7,28 +7,17 @@ const app = "io.github.ortegauriol.posturelab";
 const adb = (...args) => execFileSync("adb", args, {encoding:"utf8",timeout:30000}).trim();
 const pause = ms => new Promise(resolve=>setTimeout(resolve,ms));
 await mkdir("android-smoke-results",{recursive:true});
-let browser, page;
+let device, page;
 try {
   adb("install","-r","android/app/build/outputs/apk/debug/app-debug.apk");
   adb("shell","svc","wifi","disable");
   adb("shell","svc","data","disable");
   adb("shell","cmd","connectivity","airplane-mode","enable");
   adb("shell","am","start","-n",app+"/.MainActivity");
-  let connected=false;
-  for(let attempt=0;attempt<60;attempt++) {
-    try {
-      const pid=adb("shell","pidof",app).split(" ")[0];
-      const sockets=adb("shell","cat","/proc/net/unix");
-      const socket=sockets.split("\n").map(line=>line.match(/@(webview_devtools_remote[^\s]*)/)).filter(Boolean).map(m=>m[1]).find(s=>s.endsWith(pid));
-      if(!socket) throw Error("WebView not ready");
-      adb("forward","tcp:9222","localabstract:"+socket);
-      browser=await chromium.connectOverCDP("http://127.0.0.1:9222",{timeout:3000});
-      page=browser.contexts().flatMap(c=>c.pages()).find(p=>p.url().startsWith("https://localhost"));
-      if(!page) throw Error("App page not ready");
-      connected=true; break;
-    } catch { await pause(1000); }
-  }
-  assert(connected,"Could not connect to installed app WebView");
+  [device]=await android.devices();
+  assert(device,"Android emulator is unavailable");
+  const webview=await device.webView({pkg:app,timeout:90000});
+  page=await webview.page();
   page.setDefaultTimeout(30000);
   const remoteRequests=[];
   page.on("request",request=>{if(/^https?:/.test(request.url()) && new URL(request.url()).hostname!=="localhost") remoteRequests.push(request.url());});
@@ -79,7 +68,8 @@ try {
   await writeFile("android-smoke-results/result.json",JSON.stringify({passed:true,offline:true,nativeBridge:true,notesRestored:true,pdfSaved:true,jsonSaved:true,models:["full","lite"],remoteRequests},null,2));
   console.log("Installed Android app: offline Full/Lite loading, native PDF/JSON saving and notes recovery passed.");
 } catch(error) {
-  try { await writeFile("android-smoke-results/logcat.txt",adb("logcat","-d","-t","1200")); } catch {}
+  try { await writeFile("android-smoke-results/logcat.txt",adb("logcat","-d","-t","6000")); } catch {}
+  try { await writeFile("android-smoke-results/webviews.txt",adb("shell","cat","/proc/net/unix")); } catch {}
   if(page) { try { await page.screenshot({path:"android-smoke-results/failure.png",fullPage:true}); } catch {} }
   throw error;
-} finally { if(browser) await browser.close(); }
+} finally { if(device) await device.close(); }
