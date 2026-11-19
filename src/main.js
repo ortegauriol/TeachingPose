@@ -183,11 +183,13 @@ for (const view of VIEWS)
       for (const button of controls.querySelectorAll("button")) button.onclick = async () => {
         if (photoPending) return;
         photoPending = true;
+        const photoSession = generation;
         const message = section.querySelector("[data-message]"), previous = message.textContent;
         document.querySelectorAll("[data-phone-photo]").forEach(b => b.disabled = true);
         message.textContent = button.dataset.phonePhoto === "camera" ? "Opening camera…" : "Opening photo picker…";
         try {
           const photo = await chooseNativePhoto(button.dataset.phonePhoto);
+          if (photoSession !== generation) return;
           if (photo) await state.loadPhoto(photo);
           else message.textContent = previous;
         } catch (error) { message.textContent = "Photograph could not be selected. " + error.message; }

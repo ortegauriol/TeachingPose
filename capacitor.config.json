@@ -2,6 +2,7 @@
   "appId": "io.github.ortegauriol.posturelab",
   "appName": "PostureLab",
   "webDir": "dist",
+  "loggingBehavior": "none",
   "backgroundColor": "#00335a",
   "server": { "androidScheme": "https" },
   "android": { "allowMixedContent": false }

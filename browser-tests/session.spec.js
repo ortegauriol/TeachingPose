@@ -491,6 +491,54 @@ test("model changes are explicit, recover failures and keep photos and notes whi
   await expect(page.locator("#model-current")).toContainText("Lite");
 });
 
+test("Android photo controls preserve cancellation and use native PDF/JSON save and share", async ({page})=>{
+  await mockModel(page,[fixture()]);
+  await page.route("**/src/platform.js*",async route=>{
+    const response=await route.fetch(),source=await response.text();
+    const fake=`const Capacitor={getPlatform:()=>"android"}; window.__nativeCalls=[]; const registerPlugin=()=>({pickPhoto:async()=>{window.__nativeCalls.push({method:"pickPhoto"});return window.__selectedPhoto;},takePhoto:async()=>{window.__nativeCalls.push({method:"takePhoto"});if(window.__cameraError)throw Error("Camera unavailable");return window.__selectedPhoto;},saveFile:async options=>{window.__nativeCalls.push({method:"saveFile",...options});return {cancelled:Boolean(window.__cancelSave)};},shareFile:async options=>{window.__nativeCalls.push({method:"shareFile",...options});return {shareSheetClosed:true};},clearTemporaryFiles:async()=>{window.__nativeCalls.push({method:"clearTemporaryFiles"});}});`;
+    await route.fulfill({response,contentType:"text/javascript",body:source.replace(/import\s*\{\s*Capacitor,\s*registerPlugin\s*\}\s*from\s*[^;]+;/,fake)});
+  });
+  await page.goto("/");
+  await expect(page.locator("#status")).toContainText("Model ready");
+  const c=card(page,"comfortable-frontal");
+  await expect(c.locator("input[type=file]")).toBeHidden();
+  const image=await photo(page,fixture(),"image/jpeg");
+  await page.evaluate(data=>window.__selectedPhoto={dataUrl:"data:image/jpeg;base64,"+data,cancelled:false},image.buffer.toString("base64"));
+  await c.getByRole("button",{name:"Choose photograph",exact:true}).click();
+  await expect(c.locator("[data-message]")).toContainText("Ready.");
+  await c.getByRole("checkbox").check();
+  await c.locator("[data-run]").click();
+  await expect(c.locator("[data-results]")).toContainText("16 of 16");
+  await page.evaluate(()=>window.__selectedPhoto={cancelled:true});
+  await c.getByRole("button",{name:"Choose photograph",exact:true}).click();
+  await expect(c.locator("[data-results]")).toContainText("16 of 16");
+  await page.evaluate(()=>window.__cameraError=true);
+  await c.getByRole("button",{name:"Take photograph",exact:true}).click();
+  await expect(c.locator("[data-message]")).toContainText("Camera unavailable");
+  await expect(c.locator("[data-results]")).toContainText("16 of 16");
+  await page.locator("#interpretation").fill("Android interpretation draft.");
+  await page.getByRole("button",{name:"Save JSON",exact:true}).click();
+  await expect(page.locator("#report-status")).toContainText("File saved");
+  const exported=await page.evaluate(()=>{
+    const call=window.__nativeCalls.find(c=>c.method==="saveFile");
+    return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(call.base64),c=>c.charCodeAt(0))));
+  });
+  expect(exported.interpretation.text).toBe("Android interpretation draft.");
+  expect(exported.conditions.comfortable.frontal.rows).toHaveLength(16);
+  await page.getByRole("button",{name:"Save PDF report",exact:true}).click();
+  await expect(page.locator("#report-status")).toContainText("File saved");
+  await page.getByRole("button",{name:"Share PDF report",exact:true}).click();
+  await expect(page.locator("#report-status")).toContainText("Share sheet closed");
+  const signatures=await page.evaluate(()=>window.__nativeCalls.filter(c=>c.filename?.endsWith(".pdf")).map(c=>({method:c.method,signature:atob(c.base64).slice(0,5)})));
+  expect(signatures).toEqual([{method:"saveFile",signature:"%PDF-"},{method:"shareFile",signature:"%PDF-"}]);
+  await page.evaluate(()=>window.__cancelSave=true);
+  await page.getByRole("button",{name:"Save JSON",exact:true}).click();
+  await expect(page.locator("#report-status")).toContainText("Save cancelled");
+  expect((await page.evaluate(()=>Object.values(localStorage))).join("")).not.toContain("data:image");
+  await page.getByRole("button",{name:"Clear session",exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>window.__nativeCalls.filter(c=>c.method==="clearTemporaryFiles").length)).toBe(1);
+});
+
 test("real models load automatically or on request and reject an empty photograph", async ({ page }) => {
   test.setTimeout(120000);
   await page.goto("/");

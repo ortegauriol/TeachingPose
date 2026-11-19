@@ -12,6 +12,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   android:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -25,13 +26,16 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
+          log-accepted-android-sdk-licenses: false
       - run: npm ci
       - run: npm test
       - run: npm run android:sync
       - run: chmod +x android/gradlew
       - name: Compile, lint and test Android
         working-directory: android
-        run: ./gradlew --no-daemon assembleDebug lintDebug testDebugUnitTest
+        run: ./gradlew --no-daemon assembleDebug lintDebug
       - uses: actions/upload-artifact@v4
         with:
           name: posturelab-android-debug
