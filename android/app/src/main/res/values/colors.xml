@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#00335A</color>
+    <color name="colorPrimaryDark">#00335A</color>
+    <color name="colorAccent">#FFD166</color>
+    <color name="posturelabBackground">#00335A</color>
+</resources>

@@ -4,3 +4,14 @@ dist/
 
 playwright-report/
 test-results/
+native-assets/
+android/.gradle/
+android/local.properties
+android/**/build/
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+*.apk
+*.aab
+*.keystore
+android-smoke-results/
