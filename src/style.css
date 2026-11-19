@@ -117,6 +117,7 @@ aside {
 h2 {
   font-size: 21px;
 }
+[hidden] { display: none !important; }
 label {
   display: block;
   margin: 16px 0;

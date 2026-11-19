@@ -3,6 +3,7 @@ package io.github.ortegauriol.posturelab;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.Intent;
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
@@ -39,16 +40,22 @@ public class PostureLabPlugin extends Plugin {
 
     @Override public void load() {
         // Interrupted captures are temporary, never a persistent participant-photo library.
-        deleteFiles(captureDirectory(), 0);
+        deleteFiles(captureDirectory(), System.currentTimeMillis() - 10L * 60 * 1000);
         deleteFiles(exportDirectory(), System.currentTimeMillis() - 24L * 60 * 60 * 1000);
     }
 
-    private void deleteFiles(File directory, long olderThan) {
+    public static void removeInterruptedCaptures(Context context) {
+        deleteFiles(new File(context.getCacheDir(), "posturelab-capture"), 0);
+    }
+
+    private static boolean deleteFiles(File directory, long olderThan) {
         File[] files = directory.listFiles();
-        if (files == null) return;
+        if (files == null) return true;
+        boolean removed = true;
         for (File file : files) {
-            if (file.isFile() && (olderThan == 0 || file.lastModified() < olderThan)) file.delete();
+            if (file.isFile() && (olderThan == 0 || file.lastModified() < olderThan) && !file.delete()) removed = false;
         }
+        return removed;
     }
 
     @PluginMethod public void pickPhoto(PluginCall call) {
@@ -97,13 +104,15 @@ public class PostureLabPlugin extends Plugin {
     }
 
     private void cancelPhoto(PluginCall call) {
-        cleanupCapture(); photoPending = false;
+        boolean removed = cleanupCapture(); photoPending = false;
+        if (!removed) { call.reject("The temporary capture could not be deleted. Clear the app's storage before sharing this device."); return; }
         JSObject response = new JSObject(); response.put("cancelled", true); call.resolve(response);
     }
 
-    private void cleanupCapture() {
-        if (captureFile != null) captureFile.delete();
+    private boolean cleanupCapture() {
+        if (captureFile != null && captureFile.exists() && !captureFile.delete()) return false;
         captureFile = null;
+        return true;
     }
 
     private InputStream open(Uri uri) throws Exception {
@@ -145,6 +154,7 @@ public class PostureLabPlugin extends Plugin {
             JSObject response = new JSObject();
             response.put("dataUrl", "data:image/jpeg;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP));
             response.put("cancelled", false);
+            if (captured && !cleanupCapture()) throw new Exception("The temporary capture could not be deleted. Clear the app's storage before sharing this device.");
             call.resolve(response);
         } catch (Exception error) { call.reject(error.getMessage(), error); }
         finally {
@@ -222,8 +232,9 @@ public class PostureLabPlugin extends Plugin {
     }
 
     @PluginMethod public void clearTemporaryFiles(PluginCall call) {
-        if (!photoPending) deleteFiles(captureDirectory(), 0);
-        deleteFiles(exportDirectory(), 0);
+        boolean capturesRemoved = photoPending || deleteFiles(captureDirectory(), 0);
+        boolean exportsRemoved = deleteFiles(exportDirectory(), 0);
+        if (!capturesRemoved || !exportsRemoved) { call.reject("Temporary files could not be deleted."); return; }
         call.resolve();
     }
 
